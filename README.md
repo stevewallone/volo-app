@@ -66,8 +66,8 @@ Before you begin, ensure you have the following installed:
 
 **1. Clone and Install**
 ```bash
-git clone <TODO: REPLACE THIS WITH ACTUAL REPO URL>
-cd <repository-name>
+git clone https://github.com/VoloBuilds/volo-app.git
+cd volo-app
 pnpm install
 ```
 

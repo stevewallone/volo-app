@@ -4,9 +4,9 @@
   "description": "Full-stack React + Hono template with Firebase Auth, Neon DB, and Cloudflare deployment",
   "type": "module",
   "scripts": {
-    "dev:start": "concurrently \"cd server && pnpm dev\" \"cd ui && pnpm dev\"",
+    "dev:start": "concurrently \"cd server && pnpm run dev\" \"cd ui && pnpm run dev\"",
     "post-setup": "node scripts/post-setup.js",
-    "build": "cd ui && pnpm build && cd ../server && pnpm build",
+    "build": "cd ui && pnpm run build",
     "deploy": "cd server && wrangler deploy && echo 'Frontend deployment: Connect your Git repo to Cloudflare Pages'"
   },
   "engines": {

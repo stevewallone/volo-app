@@ -64,6 +64,12 @@ This will:
 
 Your API will be available at `http://localhost:8787` (or your configured port).
 
+## Build Process
+
+**No build step required!** Cloudflare Workers automatically handle the build process during both development (`wrangler dev`) and deployment (`wrangler deploy`). The TypeScript files in `src/` are processed directly by Wrangler.
+
+This is different from traditional Node.js applications that require a separate build step to compile TypeScript to JavaScript.
+
 ## API Authentication
 
 All routes under `/api/v1/protected/*` require authentication. To authenticate requests:

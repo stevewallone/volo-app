@@ -172,12 +172,13 @@ The `scripts/post-setup.js` script is the final step in both manual and CLI work
 **Backend (Cloudflare Worker):**
 ```bash
 cd server
-pnpm deploy
+pnpm run deploy
 ```
+*Note: Cloudflare Workers don't require a separate build step - Wrangler handles the build process automatically during deployment.*
 
 **Frontend (Cloudflare Pages):**
 1. Connect your Git repository to Cloudflare Pages
-2. Set build command: `pnpm build`
+2. Set build command: `pnpm run build`
 3. Set build output directory: `ui/dist`
 4. Deploy automatically on push
 

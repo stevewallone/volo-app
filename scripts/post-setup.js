@@ -46,7 +46,7 @@ try {
   console.log('');
   console.log('🚀 Your app is ready! To start development:');
   console.log('   cd your-app-name');
-  console.log('   pnpm dev:start');
+  console.log('   pnpm run dev:start');
   console.log('');
   console.log('📚 Need help? Check the README.md file');
 

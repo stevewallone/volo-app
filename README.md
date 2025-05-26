@@ -40,7 +40,7 @@ Use the official CLI for automated setup:
 ```bash
 npx create-volo-app my-app
 cd my-app
-pnpm dev:start
+pnpm run dev:start
 ```
 
 **What the CLI does for you:**
@@ -49,7 +49,7 @@ pnpm dev:start
 3. **Creates projects/apps automatically** via service APIs
 4. **Generates all configuration files** with real values (no manual editing!)
 5. **Runs post-setup automation** (dependencies, database schema, validation)
-6. **Ready to code!** - Just run `pnpm dev:start`
+6. **Ready to code!** - Just run `pnpm run dev:start`
 
 ## Manual Setup (Alternative)
 
@@ -120,7 +120,7 @@ pnpm post-setup
 
 **6. Start Development**
 ```bash
-pnpm dev:start
+pnpm run dev:start
 ```
 
 ## Development Workflow
@@ -129,7 +129,7 @@ Run both frontend and backend simultaneously:
 
 ```bash
 # Start both servers
-pnpm dev:start
+pnpm run dev:start
 
 # Or run separately:
 # Terminal 1: cd server && pnpm dev

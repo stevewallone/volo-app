@@ -2,7 +2,7 @@ import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { ThemeProvider } from "@/components/theme-provider";
 import { LoginForm } from '@/components/login-form';
 import { Navbar } from '@/components/navbar';
-import { AppSidebar } from '@/components/Sidebar';
+import { AppSidebar } from '@/components/appSidebar';
 import { api } from '@/lib/serverComm';
 import { useEffect, useState } from 'react';
 import {

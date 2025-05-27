@@ -3,35 +3,18 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { LoginForm } from '@/components/login-form';
 import { Navbar } from '@/components/navbar';
 import { AppSidebar } from '@/components/appSidebar';
-import { api } from '@/lib/serverComm';
-import { useEffect, useState } from 'react';
+import { Home } from '@/pages/Home';
+import { Settings } from '@/pages/Settings';
+import { Page1 } from '@/pages/Page1';
+import { Page2 } from '@/pages/Page2';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import {
   SidebarProvider,
   SidebarInset,
 } from "@/components/ui/sidebar";
 
-
-
 function AppContent() {
   const { user, loading } = useAuth();
-  const [serverUserInfo, setServerUserInfo] = useState(null);
-  const [serverError, setServerError] = useState('');
-
-  useEffect(() => {
-    async function fetchUserInfo() {
-      if (user) {
-        try {
-          const data = await api.getCurrentUser();
-          setServerUserInfo(data);
-          setServerError('');
-        } catch (error) {
-          setServerError('Failed to fetch user info from server');
-          console.error('Server error:', error);
-        }
-      }
-    }
-    fetchUserInfo();
-  }, [user]);
 
   if (loading) {
     return <div className="flex items-center justify-center min-h-screen"></div>;
@@ -49,22 +32,13 @@ function AppContent() {
           <div className="flex flex-1">
             <AppSidebar />
             <SidebarInset className="flex-1">
-              <main className="flex flex-col items-center justify-center flex-1 p-4">
-                <div className="space-y-4 text-center">
-                  <h1 className="text-3xl font-bold">Your app will go here!</h1>
-                  {serverError ? (
-                    <p className="text-red-500">{serverError}</p>
-                  ) : serverUserInfo ? (
-                    <div className="p-4 border rounded-lg">
-                      <h2 className="text-xl font-semibold mb-2">Server User Info</h2>
-                      <pre className="text-left bg-muted p-2 rounded">
-                        {JSON.stringify(serverUserInfo, null, 2)}
-                      </pre>
-                    </div>
-                  ) : (
-                    <p>Loading server info...</p>
-                  )}
-                </div>
+              <main className="flex-1">
+                <Routes>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/page1" element={<Page1 />} />
+                  <Route path="/page2" element={<Page2 />} />
+                  <Route path="/settings" element={<Settings />} />
+                </Routes>
               </main>
             </SidebarInset>
           </div>
@@ -77,8 +51,16 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        <AppContent />
+      <ThemeProvider 
+        attribute="class" 
+        defaultTheme="system" 
+        enableSystem
+        disableTransitionOnChange
+        storageKey="volo-app-theme"
+      >
+        <Router>
+          <AppContent />
+        </Router>
       </ThemeProvider>
     </AuthProvider>
   );

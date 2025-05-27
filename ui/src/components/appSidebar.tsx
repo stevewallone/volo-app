@@ -1,216 +1,56 @@
 import { 
   Home, 
   Settings, 
-  MessageCircle, 
-  Users, 
-  Hash, 
-  Phone, 
-  Video, 
-  Archive, 
-  Star, 
-  Search, 
-  Plus, 
-  User, 
-  Bell, 
-  Shield, 
-  HelpCircle, 
-  LogOut,
-  Clock,
-  Bookmark,
-  Filter,
-  MoreHorizontal
+  FileText,
+  Layers,
 } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarGroupContent,
-  SidebarMenuAction,
-  SidebarMenuBadge,
-  SidebarSeparator,
-  SidebarInput,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
 } from "@/components/ui/sidebar";
 
 export function AppSidebar() {
-  return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="font-semibold">
-              <MessageCircle className="w-6 h-6" />
-              <span>ChatApp</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-        <SidebarInput placeholder="Search conversations..." />
-      </SidebarHeader>
+  const location = useLocation();
 
-      <SidebarContent>
-        {/* Main Navigation */}
+  const isActive = (path: string) => location.pathname === path;
+
+  return (
+    <Sidebar collapsible="icon" className="h-[calc(100vh-3rem)]">
+      <SidebarContent className="overflow-y-auto">
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Home" isActive>
-                  <Home className="w-4 h-4" />
-                  <span>Home</span>
+                <SidebarMenuButton tooltip="Home" isActive={isActive('/')} asChild>
+                  <Link to="/">
+                    <Home className="w-4 h-4" />
+                    <span>Home</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Direct Messages">
-                  <MessageCircle className="w-4 h-4" />
-                  <span>Direct Messages</span>
-                  <SidebarMenuBadge>3</SidebarMenuBadge>
+                <SidebarMenuButton tooltip="Page 1" isActive={isActive('/page1')} asChild>
+                  <Link to="/page1">
+                    <FileText className="w-4 h-4" />
+                    <span>Page 1</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Channels">
-                  <Hash className="w-4 h-4" />
-                  <span>Channels</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Voice & Video">
-                  <Video className="w-4 h-4" />
-                  <span>Voice & Video</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarSeparator />
-
-        {/* Recent Conversations */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Recent Conversations</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="John Doe">
-                  <User className="w-4 h-4" />
-                  <span>John Doe</span>
-                  <SidebarMenuBadge>2</SidebarMenuBadge>
-                </SidebarMenuButton>
-                <SidebarMenuAction showOnHover>
-                  <MoreHorizontal className="w-4 h-4" />
-                </SidebarMenuAction>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Team Alpha">
-                  <Users className="w-4 h-4" />
-                  <span>Team Alpha</span>
-                </SidebarMenuButton>
-                <SidebarMenuAction showOnHover>
-                  <Phone className="w-4 h-4" />
-                </SidebarMenuAction>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Project Discussion">
-                  <Hash className="w-4 h-4" />
-                  <span>Project Discussion</span>
-                  <SidebarMenuBadge>5</SidebarMenuBadge>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Design Team">
-                  <Users className="w-4 h-4" />
-                  <span>Design Team</span>
-                </SidebarMenuButton>
-                <SidebarMenuSub>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton>
-                      <span>General</span>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton>
-                      <span>Resources (1)</span>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                </SidebarMenuSub>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarSeparator />
-
-        {/* Quick Actions */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Quick Actions</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="New Conversation">
-                  <Plus className="w-4 h-4" />
-                  <span>New Conversation</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Search">
-                  <Search className="w-4 h-4" />
-                  <span>Search</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Starred">
-                  <Star className="w-4 h-4" />
-                  <span>Starred</span>
-                  <SidebarMenuBadge>7</SidebarMenuBadge>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Recent Activity">
-                  <Clock className="w-4 h-4" />
-                  <span>Recent Activity</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Bookmarks">
-                  <Bookmark className="w-4 h-4" />
-                  <span>Bookmarks</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarSeparator />
-
-        {/* Tools */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Tools</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Archive">
-                  <Archive className="w-4 h-4" />
-                  <span>Archive</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Filter Messages">
-                  <Filter className="w-4 h-4" />
-                  <span>Filter Messages</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton tooltip="Notifications">
-                  <Bell className="w-4 h-4" />
-                  <span>Notifications</span>
-                  <SidebarMenuBadge>12</SidebarMenuBadge>
+                <SidebarMenuButton tooltip="Page 2" isActive={isActive('/page2')} asChild>
+                  <Link to="/page2">
+                    <Layers className="w-4 h-4" />
+                    <span>Page 2</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -221,27 +61,11 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton tooltip="Privacy & Security">
-              <Shield className="w-4 h-4" />
-              <span>Privacy & Security</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip="Help & Support">
-              <HelpCircle className="w-4 h-4" />
-              <span>Help & Support</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip="Settings">
-              <Settings className="w-4 h-4" />
-              <span>Settings</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip="Sign Out">
-              <LogOut className="w-4 h-4" />
-              <span>Sign Out</span>
+            <SidebarMenuButton tooltip="Settings" isActive={isActive('/settings')} asChild>
+              <Link to="/settings">
+                <Settings className="w-4 h-4" />
+                <span>Settings</span>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

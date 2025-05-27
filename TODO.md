@@ -1,0 +1,6 @@
+- Declutter the sidebar (more realistic)
+- Add react-router with some basic pages like /settings
+- Add generic terms + privacy pages
+- Check Supabase support
+- See what's up with the neondb unique key issue for existing user (should just log in and retrieve)
+- Firebase auth link requires 'Get started' click; can we automate this?

@@ -34,18 +34,34 @@ for (const file of requiredFiles) {
  * Parse the database URL to determine if it's Supabase and extract project reference
  */
 function parseSupabaseInfo(databaseUrl) {
-  // Supabase URLs follow pattern: postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
-  const supabasePattern = /postgresql:\/\/postgres\.([^:]+):[^@]+@aws-0-[^.]+\.pooler\.supabase\.com:5432\/postgres/;
-  const match = databaseUrl.match(supabasePattern);
+  // Detect any Supabase URL pattern
+  if (!databaseUrl.includes('supabase.co')) {
+    return { isSupabase: false };
+  }
+
+  let projectRef = null;
   
-  if (match) {
-    return {
-      isSupabase: true,
-      projectRef: match[1]
-    };
+  // Pattern 1: Pooled connection - postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
+  const pooledPattern = /postgresql:\/\/postgres\.([^:]+):[^@]+@aws-0-[^.]+\.pooler\.supabase\.com:\d+\/postgres/;
+  const pooledMatch = databaseUrl.match(pooledPattern);
+  
+  if (pooledMatch) {
+    projectRef = pooledMatch[1];
+  } else {
+    // Pattern 2: Direct connection - postgresql://postgres:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres  
+    const directPattern = /postgresql:\/\/postgres:[^@]+@db\.([^.]+)\.supabase\.co:\d+\/postgres/;
+    const directMatch = databaseUrl.match(directPattern);
+    
+    if (directMatch) {
+      projectRef = directMatch[1];
+    }
   }
   
-  return { isSupabase: false };
+  return {
+    isSupabase: true,
+    projectRef: projectRef,
+    hasProjectRef: !!projectRef
+  };
 }
 
 /**
@@ -56,26 +72,55 @@ async function checkSupabaseProjectStatus(projectRef) {
     // Check if supabase CLI is available
     execSync('supabase --version', { stdio: 'pipe' });
     
-    // Get project status
-    const output = execSync(`supabase projects get ${projectRef} --output json`, { 
-      stdio: 'pipe',
-      encoding: 'utf8'
-    });
+    // Get project status - try different command formats
+    let output;
+    try {
+      output = execSync(`supabase projects get ${projectRef} --output json`, { 
+        stdio: 'pipe',
+        encoding: 'utf8'
+      });
+    } catch (error) {
+      // Try alternative command format
+      output = execSync(`supabase projects list --output json`, { 
+        stdio: 'pipe',
+        encoding: 'utf8'
+      });
+      
+      const projects = JSON.parse(output);
+      const project = projects.find(p => p.id === projectRef || p.name.includes(projectRef));
+      
+      if (!project) {
+        return {
+          exists: false,
+          ready: false,
+          error: 'Project not found in list'
+        };
+      }
+      
+      output = JSON.stringify(project);
+    }
     
     const project = JSON.parse(output);
     
-    // Check if project is fully ready
-    // Supabase projects typically have a status field or we can infer readiness
+    // Check various status indicators
+    const isReady = 
+      project.status === 'ACTIVE_HEALTHY' || 
+      project.status === 'ACTIVE' ||
+      project.status === 'RUNNING' ||
+      !project.status || // Some versions don't have status
+      project.status !== 'UNKNOWN'; // Exclude explicitly unknown status
+    
     return {
       exists: true,
-      ready: project && (project.status === 'ACTIVE_HEALTHY' || project.status === 'ACTIVE' || !project.status), // Some versions don't have status
-      project
+      ready: isReady,
+      project,
+      status: project.status || 'unknown'
     };
   } catch (error) {
-    // If CLI not available or project not found, assume it might be ready and let connection attempt decide
+    // If CLI not available or project not found, we'll rely on connection testing
     return {
       exists: false,
-      ready: true, // Assume ready if we can't check
+      ready: false, // Changed to false to trigger retry logic
       error: error.message
     };
   }
@@ -84,7 +129,12 @@ async function checkSupabaseProjectStatus(projectRef) {
 /**
  * Wait for Supabase project to be ready with status checking
  */
-async function waitForSupabaseReady(projectRef, maxWaitTime = 60000) {
+async function waitForSupabaseReady(projectRef, maxWaitTime = 90000) { // Increased to 90s
+  if (!projectRef) {
+    console.log(`ℹ️  Unable to extract project reference from connection string, skipping status check...`);
+    return true; // Continue without status check
+  }
+
   const startTime = Date.now();
   let attempt = 0;
   
@@ -96,7 +146,7 @@ async function waitForSupabaseReady(projectRef, maxWaitTime = 60000) {
     
     if (status.ready) {
       if (status.exists) {
-        console.log(`✅ Supabase project is ready!`);
+        console.log(`✅ Supabase project is ready! (Status: ${status.status})`);
       } else {
         console.log(`ℹ️  Unable to check status via CLI, proceeding with connection attempt...`);
       }
@@ -104,10 +154,11 @@ async function waitForSupabaseReady(projectRef, maxWaitTime = 60000) {
     }
     
     const elapsed = Math.round((Date.now() - startTime) / 1000);
-    console.log(`⏳ Supabase project still initializing... (${elapsed}s elapsed, attempt ${attempt})`);
+    const statusMsg = status.status ? ` (Status: ${status.status})` : '';
+    console.log(`⏳ Supabase project still initializing${statusMsg}... (${elapsed}s elapsed, attempt ${attempt})`);
     
-    // Wait 3 seconds before checking again
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Wait 5 seconds before checking again
+    await new Promise(resolve => setTimeout(resolve, 5000));
   }
   
   console.log(`⚠️  Supabase project status check timed out after ${maxWaitTime/1000}s, proceeding anyway...`);
@@ -117,7 +168,7 @@ async function waitForSupabaseReady(projectRef, maxWaitTime = 60000) {
 /**
  * Enhanced retry function that checks Supabase status when applicable
  */
-async function retryDatabasePush(maxRetries = 3) {
+async function retryDatabasePush(maxRetries = 5) { // Increased retries
   // Read the DATABASE_URL to determine the provider
   const devVarsPath = join(projectRoot, 'server/.dev.vars');
   const devVarsContent = fs.readFileSync(devVarsPath, 'utf8');
@@ -143,22 +194,44 @@ async function retryDatabasePush(maxRetries = 3) {
         cwd: join(projectRoot, 'server'),
         stdio: 'inherit'
       });
+      
+      console.log('✅ Database schema created successfully!');
       return; // Success
     } catch (error) {
+      const errorMessage = error.message || String(error);
       const isLastAttempt = attempt === maxRetries;
       
+      // Specifically handle Supabase "Tenant or user not found" errors
+      const isSupabaseTenantError = supabaseInfo.isSupabase && (
+        errorMessage.includes('Tenant or user not found') ||
+        errorMessage.includes('FATAL') ||
+        errorMessage.includes('XX000')
+      );
+      
       if (isLastAttempt) {
+        if (isSupabaseTenantError) {
+          console.error('❌ Supabase database is still not ready after multiple attempts.');
+          console.log('');
+          console.log('💡 This can happen when Supabase takes longer than expected to provision.');
+          console.log('   Solutions:');
+          console.log('   1. Wait 2-3 minutes and try the manual setup:');
+          console.log('      cd server && npx dotenv-cli -e .dev.vars -- pnpm db:push');
+          console.log('   2. Check your Supabase dashboard to ensure the project is fully active');
+          console.log('   3. Verify your connection string is correct');
+        }
         throw error; // Re-throw on final attempt
       }
       
-      if (supabaseInfo.isSupabase) {
-        console.log(`⏳ Database connection failed (attempt ${attempt}/${maxRetries}), retrying in 5s...`);
-        console.log('   This can happen if Supabase is still finishing initialization...');
+      if (isSupabaseTenantError) {
+        const waitTime = Math.min(10000 + (attempt * 2000), 20000); // Progressive backoff, max 20s
+        console.log(`⏳ Supabase database not ready yet (attempt ${attempt}/${maxRetries}), waiting ${waitTime/1000}s...`);
+        console.log('   This is normal for newly created Supabase projects - they need time to fully initialize.');
       } else {
         console.log(`⏳ Database push failed (attempt ${attempt}/${maxRetries}), retrying in 3s...`);
+        console.log(`   Error: ${errorMessage.split('\n')[0]}`); // Just show first line of error
       }
       
-      const delayMs = supabaseInfo.isSupabase ? 5000 : 3000;
+      const delayMs = isSupabaseTenantError ? (10000 + (attempt * 2000)) : 3000;
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }

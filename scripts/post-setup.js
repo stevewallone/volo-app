@@ -31,144 +31,90 @@ for (const file of requiredFiles) {
 }
 
 /**
- * Parse the database URL to determine if it's Supabase and extract project reference
+ * Parse the database URL to determine if it's Supabase (for specific error handling)
  */
 function parseSupabaseInfo(databaseUrl) {
-  // Detect any Supabase URL pattern
-  if (!databaseUrl.includes('supabase.co')) {
-    return { isSupabase: false };
-  }
-
-  let projectRef = null;
-  
-  // Pattern 1: Pooled connection - postgresql://postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
-  const pooledPattern = /postgresql:\/\/postgres\.([^:]+):[^@]+@aws-0-[^.]+\.pooler\.supabase\.com:\d+\/postgres/;
-  const pooledMatch = databaseUrl.match(pooledPattern);
-  
-  if (pooledMatch) {
-    projectRef = pooledMatch[1];
-  } else {
-    // Pattern 2: Direct connection - postgresql://postgres:PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres  
-    const directPattern = /postgresql:\/\/postgres:[^@]+@db\.([^.]+)\.supabase\.co:\d+\/postgres/;
-    const directMatch = databaseUrl.match(directPattern);
-    
-    if (directMatch) {
-      projectRef = directMatch[1];
-    }
-  }
-  
   return {
-    isSupabase: true,
-    projectRef: projectRef,
-    hasProjectRef: !!projectRef
+    isSupabase: databaseUrl.includes('supabase.co')
   };
 }
 
 /**
- * Check Supabase project status using the CLI
+ * Test PostgreSQL database connectivity using external test script
  */
-async function checkSupabaseProjectStatus(projectRef) {
+async function testDatabaseConnectivity() {
   try {
-    // Check if supabase CLI is available
-    execSync('supabase --version', { stdio: 'pipe' });
-    
-    // Get project status - try different command formats
-    let output;
-    try {
-      output = execSync(`supabase projects get ${projectRef} --output json`, { 
-        stdio: 'pipe',
-        encoding: 'utf8'
-      });
-    } catch (error) {
-      // Try alternative command format
-      output = execSync(`supabase projects list --output json`, { 
-        stdio: 'pipe',
-        encoding: 'utf8'
-      });
-      
-      const projects = JSON.parse(output);
-      const project = projects.find(p => p.id === projectRef || p.name.includes(projectRef));
-      
-      if (!project) {
-        return {
-          exists: false,
-          ready: false,
-          error: 'Project not found in list'
-        };
-      }
-      
-      output = JSON.stringify(project);
-    }
-    
-    const project = JSON.parse(output);
-    
-    // Check various status indicators
-    const isReady = 
-      project.status === 'ACTIVE_HEALTHY' || 
-      project.status === 'ACTIVE' ||
-      project.status === 'RUNNING' ||
-      !project.status || // Some versions don't have status
-      project.status !== 'UNKNOWN'; // Exclude explicitly unknown status
+    execSync(`npx dotenv-cli -e .dev.vars -- node ${join(__dirname, 'db-connectivity-test.mjs')}`, {
+      cwd: join(projectRoot, 'server'),
+      timeout: 15000,
+      stdio: 'pipe'
+    });
     
     return {
-      exists: true,
-      ready: isReady,
-      project,
-      status: project.status || 'unknown'
+      connected: true,
+      error: null
     };
   } catch (error) {
-    // If CLI not available or project not found, we'll rely on connection testing
+    const errorMessage = error.message || String(error);
+    
+    // Check for specific database not ready errors
+    const isNotReady = 
+      errorMessage.includes('Tenant or user not found') ||
+      errorMessage.includes('FATAL') ||
+      errorMessage.includes('XX000') ||
+      errorMessage.includes('ENOTFOUND') ||
+      errorMessage.includes('connection refused') ||
+      errorMessage.includes('timeout') ||
+      errorMessage.includes('Connection terminated unexpectedly');
+
     return {
-      exists: false,
-      ready: false, // Changed to false to trigger retry logic
-      error: error.message
+      connected: false,
+      error: errorMessage,
+      isNotReady: isNotReady
     };
   }
 }
 
 /**
- * Wait for Supabase project to be ready with status checking
+ * Wait for PostgreSQL database to be ready with direct connectivity testing
  */
-async function waitForSupabaseReady(projectRef, maxWaitTime = 90000) { // Increased to 90s
-  if (!projectRef) {
-    console.log(`ℹ️  Unable to extract project reference from connection string, skipping status check...`);
-    return true; // Continue without status check
-  }
-
+async function waitForDatabaseReady(maxWaitTime = 120000) { // 2 minutes max
   const startTime = Date.now();
   let attempt = 0;
   
-  console.log(`🔍 Checking Supabase project status (${projectRef})...`);
+  console.log(`🔍 Testing PostgreSQL database connectivity...`);
   
   while (Date.now() - startTime < maxWaitTime) {
     attempt++;
-    const status = await checkSupabaseProjectStatus(projectRef);
+    const result = await testDatabaseConnectivity();
     
-    if (status.ready) {
-      if (status.exists) {
-        console.log(`✅ Supabase project is ready! (Status: ${status.status})`);
-      } else {
-        console.log(`ℹ️  Unable to check status via CLI, proceeding with connection attempt...`);
-      }
+    if (result.connected) {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      console.log(`✅ PostgreSQL database is ready! (${elapsed}s)`);
       return true;
     }
     
+    // If it's not a "not ready" error, fail fast
+    if (!result.isNotReady) {
+      console.log(`❌ Database connection failed with unexpected error: ${result.error}`);
+      return false;
+    }
+    
     const elapsed = Math.round((Date.now() - startTime) / 1000);
-    const statusMsg = status.status ? ` (Status: ${status.status})` : '';
-    console.log(`⏳ Supabase project still initializing${statusMsg}... (${elapsed}s elapsed, attempt ${attempt})`);
+    console.log(`⏳ PostgreSQL database still starting up... (${elapsed}s elapsed, attempt ${attempt})`);
     
     // Wait 5 seconds before checking again
     await new Promise(resolve => setTimeout(resolve, 5000));
   }
   
-  console.log(`⚠️  Supabase project status check timed out after ${maxWaitTime/1000}s, proceeding anyway...`);
+  console.log(`⚠️  Database connectivity check timed out after ${maxWaitTime/1000}s, proceeding with schema push...`);
   return false;
 }
 
 /**
- * Enhanced retry function that checks Supabase status when applicable
+ * Enhanced retry function that tests database connectivity for all PostgreSQL databases
  */
-async function retryDatabasePush(maxRetries = 5) { // Increased retries
+async function retryDatabasePush(maxRetries = 3) {
   // Read the DATABASE_URL to determine the provider
   const devVarsPath = join(projectRoot, 'server/.dev.vars');
   const devVarsContent = fs.readFileSync(devVarsPath, 'utf8');
@@ -181,11 +127,9 @@ async function retryDatabasePush(maxRetries = 5) { // Increased retries
   const databaseUrl = databaseUrlMatch[1];
   const supabaseInfo = parseSupabaseInfo(databaseUrl);
   
-  // If it's Supabase, check the project status first
-  if (supabaseInfo.isSupabase) {
-    console.log('🔍 Detected Supabase database, checking project readiness...');
-    await waitForSupabaseReady(supabaseInfo.projectRef);
-  }
+  // Test database connectivity for all PostgreSQL databases
+  console.log('🔍 Testing database connectivity before schema push...');
+  await waitForDatabaseReady();
   
   // Now attempt the database push with limited retries
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -201,38 +145,36 @@ async function retryDatabasePush(maxRetries = 5) { // Increased retries
       const errorMessage = error.message || String(error);
       const isLastAttempt = attempt === maxRetries;
       
-      // Specifically handle Supabase "Tenant or user not found" errors
-      const isSupabaseTenantError = supabaseInfo.isSupabase && (
+      // Specifically handle database "not ready" errors (common with cloud providers)
+      const isDatabaseNotReady = (
         errorMessage.includes('Tenant or user not found') ||
         errorMessage.includes('FATAL') ||
         errorMessage.includes('XX000')
       );
       
       if (isLastAttempt) {
-        if (isSupabaseTenantError) {
-          console.error('❌ Supabase database is still not ready after multiple attempts.');
+        if (isDatabaseNotReady) {
+          console.error('❌ Database is still not ready after multiple attempts.');
           console.log('');
-          console.log('💡 This can happen when Supabase takes longer than expected to provision.');
+          console.log('💡 This can happen when cloud databases take longer than expected to provision.');
           console.log('   Solutions:');
-          console.log('   1. Wait 2-3 minutes and try the manual setup:');
+          console.log('   1. Wait 1-2 minutes and try the manual setup:');
           console.log('      cd server && npx dotenv-cli -e .dev.vars -- pnpm db:push');
-          console.log('   2. Check your Supabase dashboard to ensure the project is fully active');
+          console.log('   2. Check your database provider dashboard to ensure the database is fully active');
           console.log('   3. Verify your connection string is correct');
         }
         throw error; // Re-throw on final attempt
       }
       
-      if (isSupabaseTenantError) {
-        const waitTime = Math.min(10000 + (attempt * 2000), 20000); // Progressive backoff, max 20s
-        console.log(`⏳ Supabase database not ready yet (attempt ${attempt}/${maxRetries}), waiting ${waitTime/1000}s...`);
-        console.log('   This is normal for newly created Supabase projects - they need time to fully initialize.');
+      if (isDatabaseNotReady) {
+        console.log(`⏳ Database still not ready (attempt ${attempt}/${maxRetries}), waiting 10s...`);
+        console.log('   Schema push failed but connectivity test passed - trying again shortly.');
+        await new Promise(resolve => setTimeout(resolve, 10000));
       } else {
         console.log(`⏳ Database push failed (attempt ${attempt}/${maxRetries}), retrying in 3s...`);
         console.log(`   Error: ${errorMessage.split('\n')[0]}`); // Just show first line of error
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
-      
-      const delayMs = isSupabaseTenantError ? (10000 + (attempt * 2000)) : 3000;
-      await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
 }

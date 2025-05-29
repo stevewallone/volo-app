@@ -1,6 +1,9 @@
-import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { pgSchema, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
-export const users = pgTable('users', {
+// Create private schema for application tables
+export const appSchema = pgSchema('app');
+
+export const users = appSchema.table('users', {
   id: text('id').primaryKey(),
   email: text('email').unique().notNull(),
   display_name: text('display_name'),

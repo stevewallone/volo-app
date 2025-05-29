@@ -44,7 +44,7 @@ function parseSupabaseInfo(databaseUrl) {
  */
 async function testDatabaseConnectivity() {
   try {
-    execSync(`npx dotenv-cli -e .dev.vars -- node ${join(__dirname, 'db-connectivity-test.mjs')}`, {
+    execSync(`npx dotenv-cli -e .dev.vars -- node db-connectivity-test.mjs`, {
       cwd: join(projectRoot, 'server'),
       timeout: 15000,
       stdio: 'pipe'

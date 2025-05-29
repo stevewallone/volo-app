@@ -10,7 +10,7 @@
     "deploy": "cd server && wrangler deploy && echo 'Frontend deployment: Connect your Git repo to Cloudflare Pages'"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.0.0",
     "pnpm": ">=8.0.0"
   },
   "devDependencies": {

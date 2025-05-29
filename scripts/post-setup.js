@@ -44,7 +44,7 @@ function parseSupabaseInfo(databaseUrl) {
  */
 async function testDatabaseConnectivity() {
   try {
-    execSync(`npx dotenv-cli -e .dev.vars -- node db-connectivity-test.mjs`, {
+    execSync(`npx dotenv-cli -e .dev.vars -- node scripts/db-connectivity-test.mjs`, {
       cwd: join(projectRoot, 'server'),
       timeout: 15000,
       stdio: 'pipe'
@@ -128,18 +128,28 @@ async function retryDatabasePush(maxRetries = 3) {
   const supabaseInfo = parseSupabaseInfo(databaseUrl);
   
   // Test database connectivity for all PostgreSQL databases
-  console.log('🔍 Testing database connectivity before schema push...');
+  console.log('🔍 Testing database connectivity before schema setup...');
   await waitForDatabaseReady();
   
-  // Now attempt the database push with limited retries
+  // Now attempt the secure database setup with limited retries
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      console.log('🔒 Setting up secure database schema (private schema for data protection)...');
+      
+      // First, set up the private schema
+      execSync('npx dotenv-cli -e .dev.vars -- node scripts/setup-private-schema.mjs', {
+        cwd: join(projectRoot, 'server'),
+        stdio: 'inherit'
+      });
+      
+      // Then push the schema with Drizzle
       execSync('npx dotenv-cli -e .dev.vars -- pnpm db:push', {
         cwd: join(projectRoot, 'server'),
         stdio: 'inherit'
       });
       
-      console.log('✅ Database schema created successfully!');
+      console.log('✅ Secure database schema created successfully!');
+      console.log('🛡️  Your data is now protected in a private schema that is not publicly exposed.');
       return; // Success
     } catch (error) {
       const errorMessage = error.message || String(error);
@@ -159,6 +169,7 @@ async function retryDatabasePush(maxRetries = 3) {
           console.log('💡 This can happen when cloud databases take longer than expected to provision.');
           console.log('   Solutions:');
           console.log('   1. Wait 1-2 minutes and try the manual setup:');
+          console.log('      cd server && npx dotenv-cli -e .dev.vars -- node scripts/setup-private-schema.mjs');
           console.log('      cd server && npx dotenv-cli -e .dev.vars -- pnpm db:push');
           console.log('   2. Check your database provider dashboard to ensure the database is fully active');
           console.log('   3. Verify your connection string is correct');
@@ -168,10 +179,10 @@ async function retryDatabasePush(maxRetries = 3) {
       
       if (isDatabaseNotReady) {
         console.log(`⏳ Database still not ready (attempt ${attempt}/${maxRetries}), waiting 10s...`);
-        console.log('   Schema push failed but connectivity test passed - trying again shortly.');
+        console.log('   Schema setup failed but connectivity test passed - trying again shortly.');
         await new Promise(resolve => setTimeout(resolve, 10000));
       } else {
-        console.log(`⏳ Database push failed (attempt ${attempt}/${maxRetries}), retrying in 3s...`);
+        console.log(`⏳ Database setup failed (attempt ${attempt}/${maxRetries}), retrying in 3s...`);
         console.log(`   Error: ${errorMessage.split('\n')[0]}`); // Just show first line of error
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
@@ -200,6 +211,7 @@ try {
   console.error('❌ Post-setup failed:', error.message);
   console.log('');
   console.log('💡 You can complete setup manually by running:');
+  console.log('   cd server && npx dotenv-cli -e .dev.vars -- node scripts/setup-private-schema.mjs');
   console.log('   cd server && npx dotenv-cli -e .dev.vars -- pnpm db:push');
   process.exit(1);
 } 

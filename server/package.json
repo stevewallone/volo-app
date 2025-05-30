@@ -9,6 +9,7 @@
     "db:push": "drizzle-kit push:pg"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.1.5",
     "@neondatabase/serverless": "^0.9.0",
     "drizzle-orm": "^0.30.1",
     "firebase-admin": "^12.0.0",

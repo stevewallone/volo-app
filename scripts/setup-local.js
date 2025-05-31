@@ -110,9 +110,7 @@ FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
   }
 }
 
-// Only run if this script is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  setupLocalEnvironment();
-}
+// Run the setup when script is executed directly
+setupLocalEnvironment().catch(console.error);
 
 export { setupLocalEnvironment }; 

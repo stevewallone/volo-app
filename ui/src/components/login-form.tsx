@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "./ui/input"
 import { Button } from "./ui/button"
 import { auth, googleProvider } from "@/lib/firebase"
-import { signInWithEmailAndPassword, signInWithPopup } from "firebase/auth"
+import { signInWithEmailAndPassword, signInWithPopup, createUserWithEmailAndPassword } from "firebase/auth"
 
 const GoogleIcon = () => (
   <svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
@@ -24,9 +24,20 @@ export function LoginForm() {
     setError("")
     try {
       await signInWithEmailAndPassword(auth, email, password)
-    } catch (err) {
-      setError("Failed to sign in. Please check your credentials.")
-      console.error(err)
+    } catch (err: any) {
+      // If user doesn't exist, automatically register them
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+        try {
+          await createUserWithEmailAndPassword(auth, email, password)
+          console.log('User automatically registered and signed in')
+        } catch (registerErr: any) {
+          setError(`Failed to register: ${registerErr.message}`)
+          console.error('Registration error:', registerErr)
+        }
+      } else {
+        setError("Failed to sign in. Please check your credentials.")
+        console.error(err)
+      }
     }
   }
 
@@ -72,7 +83,7 @@ export function LoginForm() {
           </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-2">
-          <Button type="submit" className="w-full">Sign in</Button>
+          <Button type="submit" className="w-full">Sign in / Register</Button>
           <div className="relative w-full">
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t" />

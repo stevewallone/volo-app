@@ -25,10 +25,10 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     }
 
     const token = authHeader.split('Bearer ')[1];
-    const firebaseUser = await verifyFirebaseToken(token, c.env.FIREBASE_PROJECT_ID);
+    const firebaseUser = await verifyFirebaseToken(token, c.env.FIREBASE_PROJECT_ID, c.env);
 
-    // Create database connection
-    const db = createDbConnection(c.env.DATABASE_URL);
+    // Create database connection (now async)
+    const db = await createDbConnection(c.env.DATABASE_URL);
 
     // Check if user exists in database
     const existingUser = await db.select()

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { authMiddleware } from './middleware/auth';
+import { createDbConnection } from './lib/db';
 
 const app = new Hono();
 
@@ -20,6 +21,28 @@ api.get('/hello', (c) => {
   return c.json({
     message: 'Hello from Hono!',
   });
+});
+
+// Database test route - public for testing
+api.get('/db-test', async (c) => {
+  try {
+    const db = await createDbConnection();
+    
+    // Test basic database functionality
+    const result = await db.query.users.findMany();
+    
+    return c.json({
+      message: 'Database connection successful!',
+      users: result,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Database test error:', error);
+    return c.json({
+      error: 'Database connection failed',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    }, 500);
+  }
 });
 
 // Protected routes - require authentication

@@ -3,7 +3,7 @@
     "target": "ES2021",
     "module": "ES2022",
     "lib": ["ES2021"],
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "types": ["@cloudflare/workers-types"],
     "resolveJsonModule": true,
     "noEmit": true,

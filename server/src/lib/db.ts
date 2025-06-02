@@ -1,70 +1,64 @@
 import { drizzle } from 'drizzle-orm/neon-http';
-import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js';
-import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
+import { drizzle as createDrizzlePostgres } from 'drizzle-orm/postgres-js';
 import { neon } from '@neondatabase/serverless';
 import postgres from 'postgres';
-import { PGlite } from '@electric-sql/pglite';
 import * as schema from '../schema/users';
+import { getEmbeddedConnectionString } from './embedded-postgres';
 
-// Global PGlite instance for local development
-let pg: PGlite | null = null;
+type DatabaseConnection = ReturnType<typeof drizzle> | ReturnType<typeof createDrizzlePostgres>;
 
-// Detect if this is a Neon database connection
+let cachedConnection: DatabaseConnection | null = null;
+let cachedConnectionString: string | null = null;
+
 const isNeonDatabase = (connectionString: string): boolean => {
   return connectionString.includes('neon.tech') || connectionString.includes('neon.database');
 };
 
-// Initialize PGlite for local development (simplified version)
-const initializePGlite = async (): Promise<PGlite> => {
-  if (!pg) {
-    console.log('🗄️ Initializing PGlite (simplified)...');
-    
-    try {
-      // Simple in-memory PGlite instance first
-      console.log('📦 Creating basic PGlite instance...');
-      pg = new PGlite();
-      
-      const yo = await pg.query("select 'Hello world' as message;");
-      console.log(yo);
-    } catch (error) {
-      console.error('❌ PGlite initialization failed:', error);
-      pg = null;
-      throw error;
-    }
-  }
-  
-  return pg;
-};
-
-// Create a database connection that works with Neon, Supabase, and local PGlite
-const createDbConnection = async (connectionString?: string) => {
-  // If no connection string provided, use local PGlite
-  if (!connectionString) {
-    console.log('🔧 Using local PGlite database');
-    
-    try {
-      const pgliteInstance = await initializePGlite();
-      return drizzlePglite(pgliteInstance, { schema });
-    } catch (error) {
-      console.error('❌ Failed to create PGlite connection:', error);
-      throw error;
-    }
-  }
-
-  const dbUrl = connectionString;
-
-  if (isNeonDatabase(dbUrl)) {
-    // Use Neon's HTTP driver for optimal performance in Cloudflare Workers
-    const sql = neon(dbUrl);
+const createConnection = async (connectionString: string): Promise<DatabaseConnection> => {
+  if (isNeonDatabase(connectionString)) {
+    const sql = neon(connectionString);
     return drizzle(sql, { schema });
-  } else {
-    // Use postgres.js for Supabase, local PGlite server, and other PostgreSQL providers
-    const client = postgres(dbUrl, { 
-      prepare: false, // Disable prepared statements for compatibility with connection poolers
-      max: 1, // Limit connections in serverless environment
-    });
-    return drizzlePostgres(client, { schema });
+  }
+
+  const client = postgres(connectionString, {
+    prepare: false,
+    max: 1,
+    idle_timeout: 20,
+    max_lifetime: 60 * 30,
+  });
+
+  return createDrizzlePostgres(client, { schema });
+};
+
+export const getDatabase = async (connectionString?: string): Promise<DatabaseConnection> => {
+  // Use embedded PostgreSQL connection if no external connection string provided
+  const connStr = connectionString || getEmbeddedConnectionString();
+
+  if (cachedConnection && cachedConnectionString === connStr) {
+    return cachedConnection;
+  }
+
+  if (!connStr) {
+    throw new Error('No database connection available. Ensure embedded PostgreSQL is started or provide a connection string.');
+  }
+
+  cachedConnection = await createConnection(connStr);
+  cachedConnectionString = connStr;
+
+  return cachedConnection;
+};
+
+export const testDatabaseConnection = async (): Promise<boolean> => {
+  try {
+    if (!cachedConnection) return false;
+    await cachedConnection.select().from(schema.users).limit(1);
+    return true;
+  } catch {
+    return false;
   }
 };
 
-export { createDbConnection }; 
+export const clearConnectionCache = (): void => {
+  cachedConnection = null;
+  cachedConnectionString = null;
+};

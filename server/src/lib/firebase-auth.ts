@@ -1,19 +1,13 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { isDevelopment } from './env';
 
 type FirebaseUser = {
   id: string;
   email: string | undefined;
 };
 
-// Detect if we're in development mode (emulator)
-const isEmulatorMode = (env: any): boolean => {
-  return env.NODE_ENV === 'development' || 
-         env.FIREBASE_AUTH_EMULATOR_HOST !== undefined;
-};
-
-// Create appropriate JWKS client based on environment
-const getJWKS = (env: any) => {
-  if (isEmulatorMode(env)) {
+const getJWKS = () => {
+  if (isDevelopment()) {
     // Use emulator JWKS endpoint
     return createRemoteJWKSet(
       new URL('http://localhost:9099/www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')
@@ -26,13 +20,13 @@ const getJWKS = (env: any) => {
   }
 };
 
-export async function verifyFirebaseToken(token: string, projectId: string, env: any): Promise<FirebaseUser> {
+export async function verifyFirebaseToken(token: string, projectId: string): Promise<FirebaseUser> {
   if (!projectId) {
     throw new Error('FIREBASE_PROJECT_ID environment variable is not set');
   }
 
   // In emulator mode, use simplified token verification
-  if (isEmulatorMode(env)) {
+  if (isDevelopment()) {
     try {
       // Decode the token without verification for emulator
       const parts = token.split('.');
@@ -58,7 +52,7 @@ export async function verifyFirebaseToken(token: string, projectId: string, env:
 
   // Production token verification
   try {
-    const JWKS = getJWKS(env);
+    const JWKS = getJWKS();
     const issuer = `https://securetoken.google.com/${projectId}`;
 
     const { payload } = await jwtVerify(token, JWKS, {

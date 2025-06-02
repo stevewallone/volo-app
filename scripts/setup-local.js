@@ -3,23 +3,50 @@ import { mkdir, writeFile, readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { PGlite } from '@electric-sql/pglite';
+import EmbeddedPostgres from 'embedded-postgres';
+import postgres from 'postgres';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function initializeDatabase() {
-  const dbPath = path.join(__dirname, '../data/local.db');
-  const dbExists = existsSync(dbPath);
+  const dataDir = path.join(__dirname, '../data/postgres');
+  
+  console.log('📦 Initializing embedded PostgreSQL database...');
+  
+  let embeddedPg = null;
+  let client = null;
   
   try {
-    const client = new PGlite(dbPath);
+    // Create embedded postgres instance
+    embeddedPg = new EmbeddedPostgres({
+      databaseDir: dataDir,
+      user: 'postgres',
+      password: 'password',
+      port: 5433,
+      persistent: true,
+    });
 
-    if (!dbExists) {
-      console.log('📦 Creating new local database...');
-      
-      // Create the app schema first
-      await client.exec('CREATE SCHEMA IF NOT EXISTS app;');
+    // Initialize and start the server
+    await embeddedPg.initialise();
+    await embeddedPg.start();
+    
+    console.log('✅ Embedded PostgreSQL server started');
+
+    // Connect to the database
+    const connectionString = 'postgresql://postgres:password@localhost:5433/postgres';
+    client = postgres(connectionString);
+
+    // Check if our schema already exists
+    const schemaExists = await client`
+      SELECT schema_name 
+      FROM information_schema.schemata 
+      WHERE schema_name = 'app'
+    `;
+
+    if (schemaExists.length === 0) {
+      console.log('📦 Creating app schema...');
+      await client`CREATE SCHEMA app`;
       
       // Read and execute the migration file
       const migrationPath = path.join(__dirname, '../server/drizzle/0000_initial.sql');
@@ -31,15 +58,36 @@ async function initializeDatabase() {
         'CREATE TABLE IF NOT EXISTS app.users'
       );
       
-      await client.exec(schemaAwareSql);
-      console.log('✅ Initialized local database with schema');
+      // Execute the migration
+      await client.unsafe(schemaAwareSql);
+      console.log('✅ Database schema created successfully');
     } else {
-      console.log('✅ Local database already exists');
+      console.log('✅ Database schema already exists');
+    }
+    
+    // Verify that the table was created
+    const tableExists = await client`
+      SELECT tablename 
+      FROM pg_tables 
+      WHERE schemaname = 'app' AND tablename = 'users'
+    `;
+    
+    if (tableExists.length > 0) {
+      console.log('✅ Database schema verified');
+    } else {
+      console.warn('⚠️  Database schema verification failed');
     }
 
-    await client.close();
   } catch (error) {
-    console.warn('⚠️  Database initialization skipped:', error.message);
+    console.warn('⚠️  Database initialization error:', error.message);
+  } finally {
+    // Clean up connections
+    if (client) {
+      await client.end();
+    }
+    if (embeddedPg) {
+      await embeddedPg.stop();
+    }
   }
 }
 
@@ -47,7 +95,7 @@ async function setupLocalEnvironment() {
   console.log('🚀 Setting up local development environment...');
 
   try {
-    // Create data directory for PGlite database
+    // Create data directory for embedded PostgreSQL
     const dataDir = path.join(__dirname, '../data');
     if (!existsSync(dataDir)) {
       await mkdir(dataDir, { recursive: true });
@@ -61,19 +109,19 @@ async function setupLocalEnvironment() {
 
     // Create local environment file for server if it doesn't exist
     const serverDir = path.join(__dirname, '../server');
-    const devVarsPath = path.join(serverDir, '.dev.vars');
+    const envPath = path.join(serverDir, '.env');
+    const envExamplePath = path.join(serverDir, '.env.example');
     
-    if (!existsSync(devVarsPath)) {
-      const localConfig = `# Local development configuration
-# No DATABASE_URL needed - will use PGlite automatically
-FIREBASE_PROJECT_ID=demo-project
-NODE_ENV=development
-FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
-`;
-      await writeFile(devVarsPath, localConfig);
-      console.log('✅ Created local development configuration');
+    if (!existsSync(envPath)) {
+      if (existsSync(envExamplePath)) {
+        const exampleContent = await readFile(envExamplePath, 'utf-8');
+        await writeFile(envPath, exampleContent);
+        console.log('✅ Created .env file from .env.example');
+      } else {
+        console.warn('⚠️  .env.example not found, skipping .env creation');
+      }
     } else {
-      console.log('✅ Local development configuration already exists');
+      console.log('✅ Local development environment file (.env) already exists');
     }
 
     // Ensure local Firebase config exists with demo values
@@ -100,9 +148,11 @@ FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
     console.log('\nServices will be available at:');
     console.log('  • Frontend: http://localhost:5173');
     console.log('  • Backend API: http://localhost:8787');
+    console.log('  • Embedded PostgreSQL: postgresql://postgres:password@localhost:5433/postgres');
     console.log('  • Firebase Auth Emulator: http://localhost:9099');
     console.log('  • Firebase Emulator UI: http://localhost:4000');
     console.log('\n💡 You can sign in with any email/password in the Firebase emulator');
+    console.log('💡 The PostgreSQL database will persist data between restarts');
 
   } catch (error) {
     console.error('❌ Error setting up local environment:', error);

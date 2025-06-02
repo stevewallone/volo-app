@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently \"npm run firebase:emulator\" \"npm run setup:local\" \"cd server && pnpm run dev\" \"cd ui && pnpm run dev -- --open\"",
     "dev:start": "concurrently \"cd server && pnpm run dev\" \"cd ui && pnpm run dev -- --open\"",
-    "firebase:emulator": "firebase emulators:start --only auth --project demo-project",
+    "firebase:emulator": "firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator",
     "setup:local": "node scripts/setup-local.js",
     "post-setup": "node scripts/post-setup.js",
     "build": "cd ui && pnpm run build",
@@ -17,7 +17,8 @@
     "pnpm": ">=8.0.0"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.1.5",
+    "embedded-postgres": "17.5.0-beta.15",
+    "postgres": "^3.4.7",
     "concurrently": "^8.2.2",
     "firebase-tools": "^13.0.0"
   },

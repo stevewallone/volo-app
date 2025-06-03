@@ -10,10 +10,33 @@ volo-app automatically handles port assignments to prevent conflicts and enable 
 
 When you run `pnpm run dev`, volo-app:
 
-1. **Attempts to use default ports** for all services
-2. **Automatically finds alternatives** if any ports are occupied
-3. **Displays clear status** showing which ports are being used
-4. **Starts all services** with the assigned ports
+1. **Finds available ports** starting from 5500-5504 for the first instance
+2. **Uses clean port blocks** (5600-5604, 5700-5704, etc.) for additional instances
+3. **Temporarily updates configuration files** with the assigned ports
+4. **Displays clear status** showing which ports are being used
+5. **Restores original configuration** when you stop the server
+
+### Port Allocation Strategy
+
+The system allocates ports in clean 100-port blocks:
+
+- **Instance 1:** 5500-5504 (backend, frontend, postgres, firebase auth, firebase UI)
+- **Instance 2:** 5600-5604  
+- **Instance 3:** 5700-5704
+- **And so on...**
+
+If any port in a block is occupied, the system jumps to the next 100-port block to ensure clean groupings.
+
+### Dynamic Configuration Updates
+
+For PostgreSQL port management, the system:
+
+- ✅ **Temporarily modifies `.env` file** with the dynamic PostgreSQL port
+- ✅ **Passes CLI arguments** to the server with the correct port
+- ✅ **Restores original `.env`** when services are stopped
+- ✅ **Ensures all database connections** use the dynamically assigned port
+
+This prevents the issue where multiple instances would try to connect to the same PostgreSQL port even when running separate embedded databases.
 
 ### Services and Default Ports
 
@@ -63,6 +86,9 @@ pnpm run dev    # Uses ports 8788, 5174, 5434, etc.
 - ✅ **PostgreSQL databases** - each project has its own `data/postgres` directory
 - ✅ **HTTP services** - automatic port conflict resolution
 - ✅ **Firebase emulator data** - stored in each project's `data/firebase-emulator` folder
+- ✅ **Configuration files** - temporarily updated with correct ports per instance
+
+**Important:** Each instance temporarily modifies its own `.env` file with the correct database port, ensuring proper isolation between multiple running instances.
 
 ## 🛠️ Development Modes
 

@@ -8,18 +8,54 @@ import getPort from 'get-port';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Store original .env content for restoration
+let originalEnvContent = null;
+let envPath = null;
+
 async function getAvailablePorts() {
   const defaultPorts = {
-    backend: 8787,
-    frontend: 5173,
-    postgres: 5433,
-    firebaseAuth: 9099,
-    firebaseUI: 4000
+    backend: 5500,
+    frontend: 5501,
+    postgres: 5502,
+    firebaseAuth: 5503,
+    firebaseUI: 5504
   };
 
   const availablePorts = {};
+  let basePort = 5500;
+
+  // Try to find a clean block of 5 consecutive ports
+  while (basePort < 10000) { // Reasonable upper limit
+    const ports = {
+      backend: basePort,
+      frontend: basePort + 1,
+      postgres: basePort + 2,
+      firebaseAuth: basePort + 3,
+      firebaseUI: basePort + 4
+    };
+
+    // Check if all ports in this block are available
+    let allAvailable = true;
+    for (const [service, port] of Object.entries(ports)) {
+      const testPort = await getPort({ port });
+      if (testPort !== port) {
+        allAvailable = false;
+        break;
+      }
+    }
+
+    if (allAvailable) {
+      // Found a clean block, use these ports
+      return ports;
+    }
+
+    // Jump to next 100-port block
+    basePort += 100;
+  }
+
+  // Fallback: if we can't find a clean block, use any available ports
   for (const [service, defaultPort] of Object.entries(defaultPorts)) {
-    availablePorts[service] = await getPort({ port: defaultPort });
+    availablePorts[service] = await getPort();
   }
   
   return availablePorts;
@@ -108,6 +144,50 @@ async function createFirebaseConfig(availablePorts) {
   return firebaseConfigPath;
 }
 
+function updateEnvWithDynamicPorts(availablePorts, useWrangler) {
+  if (useWrangler) {
+    // For Wrangler mode, don't modify .env as it should use remote database
+    return;
+  }
+
+  envPath = path.join(__dirname, '../server/.env');
+  
+  if (!existsSync(envPath)) {
+    console.error('❌ No .env file found. Cannot update dynamic PostgreSQL port.');
+    return;
+  }
+
+  try {
+    // Read and store original content
+    originalEnvContent = readFileSync(envPath, 'utf-8');
+    
+    // Update DATABASE_URL with dynamic PostgreSQL port
+    const updatedContent = originalEnvContent.replace(
+      /DATABASE_URL=postgresql:\/\/postgres:password@localhost:\d+\/postgres/,
+      `DATABASE_URL=postgresql://postgres:password@localhost:${availablePorts.postgres}/postgres`
+    );
+    
+    // Only write if content actually changed
+    if (updatedContent !== originalEnvContent) {
+      writeFileSync(envPath, updatedContent);
+      console.log(`📝 Updated .env with PostgreSQL port ${availablePorts.postgres}`);
+    }
+  } catch (error) {
+    console.error('⚠️ Warning: Could not update .env file with dynamic port:', error.message);
+  }
+}
+
+function restoreOriginalEnv() {
+  if (originalEnvContent && envPath && existsSync(envPath)) {
+    try {
+      writeFileSync(envPath, originalEnvContent);
+      console.log('✅ Restored original .env file');
+    } catch (error) {
+      console.error('⚠️ Warning: Could not restore original .env file:', error.message);
+    }
+  }
+}
+
 async function startServices() {
   const cliArgs = parseCliArgs();
   
@@ -127,8 +207,11 @@ async function startServices() {
       process.exit(1);
     }
 
+    // Update .env file with dynamic PostgreSQL port
+    updateEnvWithDynamicPorts(availablePorts, cliArgs.useWrangler);
+
     // Create temporary firebase.json for consistent port configuration
-    const firebaseConfigPath = createFirebaseConfig(availablePorts);
+    await createFirebaseConfig(availablePorts);
 
     // Build commands
     const commands = cliArgs.useWrangler ? [
@@ -253,6 +336,9 @@ async function startServices() {
 
     // Cleanup on exit
     const cleanup = () => {
+      // Restore original .env file
+      restoreOriginalEnv();
+      
       // Clean up temporary firebase.json
       const firebaseConfigPath = path.join(__dirname, '../firebase.json');
       if (existsSync(firebaseConfigPath)) {
@@ -293,7 +379,7 @@ function showServiceInfo(availablePorts, useWrangler) {
   console.log('🎉 Your app is ready at:');
   console.log(`   Frontend:  \x1b[32mhttp://localhost:${availablePorts.frontend}\x1b[0m`);
   console.log(`   Backend:   http://localhost:${availablePorts.backend}`);
-  console.log(`   Firebase:  http://localhost:${availablePorts.firebaseUI}`);
+  console.log(`   Firebase Emulator UI:  http://localhost:${availablePorts.firebaseUI}`);
   
   // Determine database URL
   let databaseUrl = `postgresql://postgres:password@localhost:${availablePorts.postgres}/postgres`;
@@ -321,7 +407,7 @@ function showServiceInfo(availablePorts, useWrangler) {
     console.log('\n🗄️  Using embedded PostgreSQL database');
   }
   
-  console.log('\n📋 Service logs:\n');
+  console.log('\n📋 Live service logs:\n');
 }
 
 startServices().catch((error) => {

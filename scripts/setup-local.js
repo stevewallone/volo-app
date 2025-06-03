@@ -271,12 +271,12 @@ WORKER_NAME=demo-worker
       }
     }
 
-    // Ensure local Firebase config exists with demo values
+    // Handle Firebase configuration for local development
     const uiDir = path.join(__dirname, '../ui/src/lib');
     const firebaseConfigPath = path.join(uiDir, 'firebase-config.json');
     
     if (!existsSync(firebaseConfigPath)) {
-      // Ensure the directory exists
+      // No Firebase config exists, create demo configuration
       await mkdir(uiDir, { recursive: true });
       
       const demoFirebaseConfig = {
@@ -291,7 +291,22 @@ WORKER_NAME=demo-worker
       await writeFile(firebaseConfigPath, JSON.stringify(demoFirebaseConfig, null, 2));
       console.log('✅ Created demo Firebase configuration');
     } else {
-      console.log('✅ Demo Firebase configuration already exists');
+      // Check if existing config is production or demo
+      try {
+        const existingConfig = JSON.parse(await readFile(firebaseConfigPath, 'utf-8'));
+        const isProductionConfig = existingConfig.projectId !== 'demo-project' && 
+                                 existingConfig.apiKey !== 'demo-api-key';
+        
+        if (isProductionConfig) {
+          console.log('✅ Production Firebase configuration detected - keeping existing setup');
+          console.log(`   • Project: ${existingConfig.projectId}`);
+          console.log('   • Note: Firebase emulator will not be used with production config');
+        } else {
+          console.log('✅ Demo Firebase configuration already exists');
+        }
+      } catch (error) {
+        console.log('⚠️  Firebase configuration file exists but could not be read, keeping existing');
+      }
     }
 
     // Display setup completion information

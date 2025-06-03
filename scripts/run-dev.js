@@ -197,9 +197,20 @@ async function startServices() {
     }
     
     // Add frontend server
-    const frontendCmd = config.useLocalFirebase
-      ? `"cd ui && pnpm run dev -- --port ${availablePorts.frontend} --strictPort --api-url http://localhost:${availablePorts.backend} --firebase-auth-port ${availablePorts.firebaseAuth}"`
-      : `"cd ui && pnpm run dev -- --port ${availablePorts.frontend} --strictPort --api-url http://localhost:${availablePorts.backend}"`;
+    const frontendArgs = [
+      `--port ${availablePorts.frontend}`,
+      '--strictPort',
+      `--api-url http://localhost:${availablePorts.backend}`
+    ];
+    
+    if (config.useLocalFirebase) {
+      frontendArgs.push('--use-firebase-emulator true');
+      frontendArgs.push(`--firebase-auth-port ${availablePorts.firebaseAuth}`);
+    } else {
+      frontendArgs.push('--use-firebase-emulator false');
+    }
+    
+    const frontendCmd = `"cd ui && pnpm run dev -- ${frontendArgs.join(' ')}"`;
     commands.push(frontendCmd);
 
     // Start loading animation

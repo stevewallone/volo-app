@@ -191,7 +191,7 @@ async function startServices() {
       commands.push(`"cd server && wrangler dev --port ${availablePorts.backend} --local-protocol http"`);
     } else {
       const serverCmd = config.useLocalDatabase 
-        ? `"cd server && pnpm run dev -- --port ${availablePorts.backend} --postgres-port ${availablePorts.postgres}"`
+        ? `"cd server && pnpm run dev -- --port ${availablePorts.backend}"`
         : `"cd server && pnpm run dev -- --port ${availablePorts.backend}"`;
       commands.push(serverCmd);
     }

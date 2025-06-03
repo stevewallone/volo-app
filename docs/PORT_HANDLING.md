@@ -29,14 +29,15 @@ If any port in a block is occupied, the system jumps to the next 100-port block 
 
 ### Dynamic Configuration Updates
 
-For PostgreSQL port management, the system:
+For dynamic port management, the system:
 
-- ✅ **Temporarily modifies `.env` file** with the dynamic PostgreSQL port
-- ✅ **Passes CLI arguments** to the server with the correct port
+- ✅ **Temporarily modifies `.env` file** with dynamic PostgreSQL and Firebase Auth ports
+- ✅ **Passes CLI arguments** to services with correct ports  
+- ✅ **Sets environment variables** for frontend Firebase Auth emulator connection
 - ✅ **Restores original `.env`** when services are stopped
-- ✅ **Ensures all database connections** use the dynamically assigned port
+- ✅ **Ensures all services** use the dynamically assigned ports
 
-This prevents the issue where multiple instances would try to connect to the same PostgreSQL port even when running separate embedded databases.
+This prevents port conflicts between multiple instances and ensures proper service isolation.
 
 ### Services and Default Ports
 

@@ -150,40 +150,52 @@ function updateEnvWithDynamicPorts(availablePorts, useWrangler) {
     return;
   }
 
+  // Update server .env
   envPath = path.join(__dirname, '../server/.env');
   
   if (!existsSync(envPath)) {
-    console.error('❌ No .env file found. Cannot update dynamic PostgreSQL port.');
+    console.error('❌ No server .env file found. Cannot update dynamic ports.');
     return;
   }
 
   try {
-    // Read and store original content
+    // Read and store original server .env content
     originalEnvContent = readFileSync(envPath, 'utf-8');
     
     // Update DATABASE_URL with dynamic PostgreSQL port
-    const updatedContent = originalEnvContent.replace(
+    let updatedContent = originalEnvContent.replace(
       /DATABASE_URL=postgresql:\/\/postgres:password@localhost:\d+\/postgres/,
       `DATABASE_URL=postgresql://postgres:password@localhost:${availablePorts.postgres}/postgres`
     );
     
+    // Add or update Firebase Auth emulator port
+    if (updatedContent.includes('FIREBASE_AUTH_EMULATOR_HOST=')) {
+      updatedContent = updatedContent.replace(
+        /FIREBASE_AUTH_EMULATOR_HOST=localhost:\d+/,
+        `FIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}`
+      );
+    } else {
+      updatedContent += `\n# Firebase Auth Emulator (dynamically set)\nFIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}\n`;
+    }
+    
     // Only write if content actually changed
     if (updatedContent !== originalEnvContent) {
       writeFileSync(envPath, updatedContent);
-      console.log(`📝 Updated .env with PostgreSQL port ${availablePorts.postgres}`);
+      console.log(`📝 Updated server .env with dynamic ports (PostgreSQL: ${availablePorts.postgres}, Firebase Auth: ${availablePorts.firebaseAuth})`);
     }
   } catch (error) {
-    console.error('⚠️ Warning: Could not update .env file with dynamic port:', error.message);
+    console.error('⚠️ Warning: Could not update server .env file:', error.message);
   }
 }
 
 function restoreOriginalEnv() {
+  // Restore server .env
   if (originalEnvContent && envPath && existsSync(envPath)) {
     try {
       writeFileSync(envPath, originalEnvContent);
-      console.log('✅ Restored original .env file');
+      console.log('✅ Restored original server .env file');
     } catch (error) {
-      console.error('⚠️ Warning: Could not restore original .env file:', error.message);
+      console.error('⚠️ Warning: Could not restore server .env file:', error.message);
     }
   }
 }
@@ -207,7 +219,7 @@ async function startServices() {
       process.exit(1);
     }
 
-    // Update .env file with dynamic PostgreSQL port
+    // Update .env files with dynamic ports
     updateEnvWithDynamicPorts(availablePorts, cliArgs.useWrangler);
 
     // Create temporary firebase.json for consistent port configuration
@@ -217,11 +229,11 @@ async function startServices() {
     const commands = cliArgs.useWrangler ? [
       `"firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`,
       `"cd server && wrangler dev --port ${availablePorts.backend} --local-protocol http"`,
-      `"cd ui && pnpm run dev -- --port ${availablePorts.frontend} --strictPort --api-url http://localhost:${availablePorts.backend} --open"`
+      `"cd ui && pnpm run dev -- --port ${availablePorts.frontend} --strictPort --api-url http://localhost:${availablePorts.backend} --firebase-auth-port ${availablePorts.firebaseAuth}"`
     ] : [
       `"firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`,
       `"cd server && pnpm run dev -- --port ${availablePorts.backend} --postgres-port ${availablePorts.postgres}"`,
-      `"cd ui && pnpm run dev -- --port ${availablePorts.frontend} --strictPort --api-url http://localhost:${availablePorts.backend} --open"`
+      `"cd ui && pnpm run dev -- --port ${availablePorts.frontend} --strictPort --api-url http://localhost:${availablePorts.backend} --firebase-auth-port ${availablePorts.firebaseAuth}"`
     ];
 
     // Start loading animation
@@ -336,7 +348,7 @@ async function startServices() {
 
     // Cleanup on exit
     const cleanup = () => {
-      // Restore original .env file
+      // Restore original .env files
       restoreOriginalEnv();
       
       // Clean up temporary firebase.json

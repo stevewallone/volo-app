@@ -29,10 +29,6 @@ const startServer = async () => {
     }
   }
 
-  console.log(`🚀 Starting Node.js server on port ${port}`);
-  console.log(`📡 API available at http://localhost:${port}`);
-  console.log(`🔥 Health check: http://localhost:${port}/`);
-
   serve({
     fetch: app.fetch,
     port,

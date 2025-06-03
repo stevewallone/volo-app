@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { isDevelopment } from './env';
+import { isDevelopment, getEnv } from './env';
 
 type FirebaseUser = {
   id: string;
@@ -8,9 +8,14 @@ type FirebaseUser = {
 
 const getJWKS = () => {
   if (isDevelopment()) {
-    // Use emulator JWKS endpoint
+    // Use emulator JWKS endpoint with dynamic port
+    const firebaseAuthHost = getEnv('FIREBASE_AUTH_EMULATOR_HOST') ?? 'localhost:5503';
+    const emulatorUrl = firebaseAuthHost.startsWith('http') 
+      ? firebaseAuthHost 
+      : `http://${firebaseAuthHost}`;
+    
     return createRemoteJWKSet(
-      new URL('http://localhost:9099/www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')
+      new URL(`${emulatorUrl}/www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`)
     );
   } else {
     // Use production Firebase JWKS

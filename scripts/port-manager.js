@@ -123,26 +123,42 @@ export function updateServerEnvWithPorts(availablePorts, useWrangler) {
   }
 
   try {
-    // Update DATABASE_URL with dynamic PostgreSQL port
-    let updatedContent = envData.content.replace(
-      /DATABASE_URL=postgresql:\/\/postgres:password@localhost:\d+\/postgres/,
-      `DATABASE_URL=postgresql://postgres:password@localhost:${availablePorts.postgres}/postgres`
-    );
+    let updatedContent = envData.content;
+    let hasChanges = false;
     
-    // Add or update Firebase Auth emulator port
-    if (updatedContent.includes('FIREBASE_AUTH_EMULATOR_HOST=')) {
+    // Only update DATABASE_URL if it's currently pointing to localhost (embedded postgres)
+    const currentDbUrl = envData.content.match(/DATABASE_URL=(.+)/)?.[1]?.trim();
+    if (currentDbUrl && currentDbUrl.includes('localhost')) {
       updatedContent = updatedContent.replace(
-        /FIREBASE_AUTH_EMULATOR_HOST=localhost:\d+/,
-        `FIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}`
+        /DATABASE_URL=postgresql:\/\/postgres:password@localhost:\d+\/postgres/,
+        `DATABASE_URL=postgresql://postgres:password@localhost:${availablePorts.postgres}/postgres`
       );
-    } else {
-      updatedContent += `\n# Firebase Auth Emulator (dynamically set)\nFIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}\n`;
+      hasChanges = true;
+      console.log(`📝 Updated embedded PostgreSQL port to ${availablePorts.postgres}`);
+    }
+    
+    // Only add/update Firebase Auth emulator if we're not using production Firebase
+    const firebaseProjectMatch = envData.content.match(/FIREBASE_PROJECT_ID=(.+)/);
+    const firebaseProjectId = firebaseProjectMatch?.[1]?.trim();
+    const isUsingLocalFirebase = !firebaseProjectId || firebaseProjectId === 'demo-project';
+    
+    if (isUsingLocalFirebase) {
+      if (updatedContent.includes('FIREBASE_AUTH_EMULATOR_HOST=')) {
+        updatedContent = updatedContent.replace(
+          /FIREBASE_AUTH_EMULATOR_HOST=localhost:\d+/,
+          `FIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}`
+        );
+        hasChanges = true;
+      } else {
+        updatedContent += `\n# Firebase Auth Emulator (dynamically set)\nFIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}\n`;
+        hasChanges = true;
+      }
+      console.log(`📝 Updated Firebase Auth emulator port to ${availablePorts.firebaseAuth}`);
     }
     
     // Only write if content actually changed
-    if (updatedContent !== envData.content) {
+    if (hasChanges && updatedContent !== envData.content) {
       writeFileSync(envData.path, updatedContent);
-      console.log(`📝 Updated server .env with dynamic ports (PostgreSQL: ${availablePorts.postgres}, Firebase Auth: ${availablePorts.firebaseAuth})`);
       
       // Return original state for restoration
       return {
@@ -210,12 +226,21 @@ export function checkDatabaseConfiguration(useWrangler) {
     return false;
   }
 
-  if (!useWrangler) return true; // Node.js mode can use embedded postgres
-
   const envContent = readFileSync(envPath, 'utf-8');
-  const dbUrl = envContent.match(/DATABASE_URL=(.+)/)?.[1];
+  const dbUrl = envContent.match(/DATABASE_URL=(.+)/)?.[1]?.trim();
 
-  if (!dbUrl || dbUrl.includes('localhost')) {
+  if (!dbUrl) {
+    console.error('❌ No DATABASE_URL found in .env file.');
+    if (useWrangler) {
+      console.error('   Please add DATABASE_URL to server/.dev.vars with a remote database.');
+    } else {
+      console.error('   Run `pnpm run setup:local` to set up embedded PostgreSQL.');
+    }
+    return false;
+  }
+
+  // If using Wrangler and database is localhost, that's a problem
+  if (useWrangler && dbUrl.includes('localhost')) {
     console.error('❌ Cloudflare Workers Configuration Issue:');
     console.error('   Embedded PostgreSQL cannot run in Cloudflare Workers environment.');
     console.error('   Please update DATABASE_URL in server/.dev.vars to point to a remote database.');
@@ -223,6 +248,11 @@ export function checkDatabaseConfiguration(useWrangler) {
     console.error('   • Neon (recommended): postgresql://user:pass@host.neon.tech/db');
     console.error('   • Supabase, Railway, or other PostgreSQL providers');
     return false;
+  }
+
+  // If not using Wrangler but we have a remote database, that's fine too
+  if (!useWrangler && !dbUrl.includes('localhost')) {
+    console.log('✅ Using remote database with Node.js server');
   }
 
   return true;

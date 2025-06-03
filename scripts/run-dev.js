@@ -1,63 +1,15 @@
 #!/usr/bin/env node
 import { spawn } from 'child_process';
 import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
-import net from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import getPort from 'get-port';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function checkDependencies() {
-  // Check if concurrently is available
-  return new Promise((resolve) => {
-    const child = spawn('npx', ['concurrently', '--version'], { 
-      stdio: 'pipe',
-      shell: true 
-    });
-    child.on('exit', (code) => {
-      resolve(code === 0);
-    });
-    child.on('error', () => resolve(false));
-    // Timeout after 5 seconds
-    setTimeout(() => {
-      child.kill();
-      resolve(false);
-    }, 5000);
-  });
-}
-
-async function isPortAvailable(port) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.listen(port, '127.0.0.1', () => {
-      server.close(() => resolve(true));
-    });
-    server.on('error', () => resolve(false));
-  });
-}
-
-async function findNextAvailablePort(startPort) {
-  let port = startPort;
-  let attempts = 0;
-  const maxAttempts = 100; // Prevent infinite loops
-  
-  while (!(await isPortAvailable(port)) && attempts < maxAttempts) {
-    port++;
-    attempts++;
-  }
-  
-  if (attempts >= maxAttempts) {
-    throw new Error(`Could not find an available port starting from ${startPort} after ${maxAttempts} attempts`);
-  }
-  
-  return port;
-}
-
 async function getAvailablePorts() {
-  // Read intended ports from .env if it exists
-  const envPath = path.join(__dirname, '../server/.env');
-  let envPorts = {
+  const defaultPorts = {
     backend: 8787,
     frontend: 5173,
     postgres: 5433,
@@ -65,82 +17,12 @@ async function getAvailablePorts() {
     firebaseUI: 4000
   };
 
-  if (existsSync(envPath)) {
-    try {
-      const envContent = readFileSync(envPath, 'utf-8');
-      const portMatch = envContent.match(/PORT=(\d+)/);
-      if (portMatch) {
-        envPorts.backend = parseInt(portMatch[1]);
-      }
-      
-      const dbUrlMatch = envContent.match(/postgresql:\/\/.*:(\d+)/);
-      if (dbUrlMatch) {
-        envPorts.postgres = parseInt(dbUrlMatch[1]);
-        console.log(`📋 Using PostgreSQL port ${envPorts.postgres} from .env configuration`);
-      }
-    } catch (error) {
-      console.log('📝 Note: Could not read .env file, using defaults');
-      console.log('💡 Run `pnpm run setup:local` to create local configuration');
-    }
-  } else {
-    console.log('⚠️  No .env file found. Run `pnpm run setup:local` first to set up your database.');
-    process.exit(1);
-  }
-
-  // Check availability and find alternatives if needed
-  // All services can use dynamic ports for multi-instance support
   const availablePorts = {};
-  for (const [service, port] of Object.entries(envPorts)) {
-    try {
-      availablePorts[service] = await isPortAvailable(port) 
-        ? port 
-        : await findNextAvailablePort(port);
-    } catch (error) {
-      console.error(`❌ Error finding available port for ${service}:`, error.message);
-      process.exit(1);
-    }
+  for (const [service, defaultPort] of Object.entries(defaultPorts)) {
+    availablePorts[service] = await getPort({ port: defaultPort });
   }
-
-  return { intended: envPorts, available: availablePorts };
-}
-
-async function createTempFirebaseConfig(authPort, uiPort) {
-  const firebaseConfigPath = path.join(__dirname, '../firebase.json');
-  const tempFirebaseConfigPath = path.join(__dirname, '../firebase.temp.json');
   
-  if (!existsSync(firebaseConfigPath)) {
-    console.warn('⚠️  firebase.json not found, Firebase emulator may not work properly');
-    return null;
-  }
-
-  try {
-    // Read original firebase config
-    const originalConfig = JSON.parse(readFileSync(firebaseConfigPath, 'utf-8'));
-    
-    // Create temp config with new ports
-    const tempConfig = {
-      ...originalConfig,
-      emulators: {
-        ...originalConfig.emulators,
-        auth: {
-          ...originalConfig.emulators.auth,
-          port: authPort,
-          host: '127.0.0.1'
-        },
-        ui: {
-          ...originalConfig.emulators.ui,
-          port: uiPort,
-          host: '127.0.0.1'
-        }
-      }
-    };
-    
-    writeFileSync(tempFirebaseConfigPath, JSON.stringify(tempConfig, null, 2));
-    return tempFirebaseConfigPath;
-  } catch (error) {
-    console.warn('⚠️  Error creating temporary Firebase config:', error.message);
-    return null;
-  }
+  return availablePorts;
 }
 
 function parseCliArgs() {
@@ -158,53 +40,72 @@ function showHelp() {
 Usage:
   npm run dev                    Start with Node.js server (default)
   npm run dev -- --wrangler     Start with Cloudflare Wrangler dev server
-  npm run dev -- --cloudflare   Same as --wrangler
   npm run dev -- --help         Show this help
 
 Features:
   ✅ Automatic port conflict detection and resolution
   ✅ Multiple instance support (run several volo-apps simultaneously)
   ✅ Cloudflare Workers compatibility
-  ✅ Firebase emulator integration
-  ✅ Hot reload for all services
 
 Notes:
   • When using --wrangler, embedded PostgreSQL is not available
   • For Cloudflare Workers, ensure DATABASE_URL points to a remote database
-  • Port assignments are displayed on startup
-  • Each volo-app project should be run from its own folder
 `);
 }
 
-async function checkDatabaseConfiguration(useWrangler) {
+function handleError(error, message = 'Failed to start services') {
+  console.error(`❌ ${message}:`, error.message || error);
+  process.exit(1);
+}
+
+function checkDatabaseConfiguration(useWrangler) {
   const envPath = path.join(__dirname, '../server/.env');
-  
   if (!existsSync(envPath)) {
     if (useWrangler) {
-      console.log('⚠️  Warning: No .env file found. Cloudflare Workers requires DATABASE_URL to be set.');
-      console.log('   Please create server/.env with a remote database URL.');
+      console.error('❌ No .env file found. Cloudflare Workers requires DATABASE_URL to be set.');
+      console.error('   Please create server/.dev.vars with a remote database URL.');
       return false;
     }
-    return true; // Node.js can use embedded postgres
+    console.error('❌ No .env file found. Run `pnpm run setup:local` first to set up your database.');
+    return false;
   }
+
+  if (!useWrangler) return true; // Node.js mode can use embedded postgres
 
   const envContent = readFileSync(envPath, 'utf-8');
   const dbUrl = envContent.match(/DATABASE_URL=(.+)/)?.[1];
 
-  if (useWrangler) {
-    if (!dbUrl || dbUrl.includes('localhost:5433')) {
-      console.log('🚨 Cloudflare Workers Configuration Issue:');
-      console.log('   Embedded PostgreSQL cannot run in Cloudflare Workers environment.');
-      console.log('   Please update DATABASE_URL in server/.env to point to a remote database.');
-      console.log('   Supported options:');
-      console.log('   • Neon (recommended): postgresql://user:pass@host.neon.tech/db');
-      console.log('   • PostgreSQL on Railway, Supabase, or other cloud providers');
-      console.log('');
-      return false;
-    }
+  if (!dbUrl || dbUrl.includes('localhost')) {
+    console.error('❌ Cloudflare Workers Configuration Issue:');
+    console.error('   Embedded PostgreSQL cannot run in Cloudflare Workers environment.');
+    console.error('   Please update DATABASE_URL in server/.dev.vars to point to a remote database.');
+    console.error('   Supported options:');
+    console.error('   • Neon (recommended): postgresql://user:pass@host.neon.tech/db');
+    console.error('   • Supabase, Railway, or other PostgreSQL providers');
+    return false;
   }
 
   return true;
+}
+
+async function createFirebaseConfig(availablePorts) {
+  const firebaseConfigPath = path.join(__dirname, '../firebase.json');
+  const tempFirebaseConfig = {
+    emulators: {
+      auth: {
+        port: availablePorts.firebaseAuth
+      },
+      ui: {
+        enabled: true,
+        port: availablePorts.firebaseUI
+      }
+    }
+  };
+  
+  // Write temporary config
+  writeFileSync(firebaseConfigPath, JSON.stringify(tempFirebaseConfig, null, 2));
+  
+  return firebaseConfigPath;
 }
 
 async function startServices() {
@@ -215,141 +116,214 @@ async function startServices() {
     return;
   }
 
-  // Check if concurrently is available
-  console.log('🔍 Checking dependencies...');
-  const concurrentlyAvailable = await checkDependencies();
-  if (!concurrentlyAvailable) {
-    console.error('❌ Error: concurrently is not available.');
-    console.error('   This is required to run multiple services simultaneously.');
-    console.error('   Please ensure the dependency is installed with: npm install');
-    process.exit(1);
-  }
+  console.log('🚀 Starting volo-app development server...\n');
 
-  console.log('🔍 Checking port availability...\n');
-  
-  const { intended, available } = await getAvailablePorts();
-  
-  // Check database configuration for wrangler mode
-  const dbConfigOk = await checkDatabaseConfiguration(cliArgs.useWrangler);
-  if (!dbConfigOk) {
-    process.exit(1);
-  }
-
-  // Show port assignments
-  console.log('🔌 Port assignments:');
-  Object.entries(available).forEach(([service, port]) => {
-    const status = port === intended[service] ? '✅' : '🔄';
-    const statusText = port === intended[service] ? 'intended' : `fallback (${intended[service]} occupied)`;
+  try {
+    // Get available ports
+    const availablePorts = await getAvailablePorts();
     
-    console.log(`  ${status} ${service}: ${port} (${statusText})`);
-  });
-  console.log('');
-
-  // Show runtime mode
-  if (cliArgs.useWrangler) {
-    console.log('⚡ Starting in Cloudflare Workers mode (wrangler dev)');
-    console.log('📡 Using remote database (embedded PostgreSQL disabled)\n');
-  } else {
-    console.log('🚀 Starting in Node.js mode');
-    console.log('🗄️  Using embedded PostgreSQL (or configured DATABASE_URL)\n');
-  }
-
-  // Create temporary Firebase config with dynamic ports
-  const tempConfigPath = await createTempFirebaseConfig(available.firebaseAuth, available.firebaseUI);
-  const firebaseConfigArg = tempConfigPath ? ` --config ${tempConfigPath}` : '';
-
-  // Build the command arguments based on runtime mode
-  let commands;
-  
-  if (cliArgs.useWrangler) {
-    // Cloudflare Workers mode - use wrangler dev
-    commands = [
-      `"firebase emulators:start --only auth --project demo-project${firebaseConfigArg} --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`,
-      `"cd server && wrangler dev --port ${available.backend} --local-protocol http"`,
-      `"cd ui && pnpm run dev -- --port ${available.frontend} --api-url http://localhost:${available.backend} --open"`
-    ];
-  } else {
-    // Node.js mode - use tsx watch
-    commands = [
-      `"firebase emulators:start --only auth --project demo-project${firebaseConfigArg} --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`,
-      `"cd server && pnpm run dev -- --port ${available.backend} --postgres-port ${available.postgres}"`,
-      `"cd ui && pnpm run dev -- --port ${available.frontend} --api-url http://localhost:${available.backend} --open"`
-    ];
-  }
-
-  console.log('🚀 Starting services...\n');
-  
-  // Add a small delay to ensure port detection is accurate
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  // Use concurrently to run all services
-  const child = spawn('npx', ['concurrently', ...commands], {
-    stdio: 'inherit',
-    shell: true,
-    cwd: path.join(__dirname, '..')
-  });
-
-  // Handle graceful shutdown
-  const shutdown = (signal) => {
-    console.log(`\n🛑 Received ${signal}, shutting down services...`);
-    
-    // Kill child process tree (Windows and Unix compatible)
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', child.pid, '/f', '/t'], { stdio: 'ignore' });
-    } else {
-      child.kill('SIGTERM');
+    // Check database configuration for Cloudflare Workers mode
+    if (!checkDatabaseConfiguration(cliArgs.useWrangler)) {
+      process.exit(1);
     }
+
+    // Create temporary firebase.json for consistent port configuration
+    const firebaseConfigPath = createFirebaseConfig(availablePorts);
+
+    // Build commands
+    const commands = cliArgs.useWrangler ? [
+      `"firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`,
+      `"cd server && wrangler dev --port ${availablePorts.backend} --local-protocol http"`,
+      `"cd ui && pnpm run dev -- --port ${availablePorts.frontend} --strictPort --api-url http://localhost:${availablePorts.backend} --open"`
+    ] : [
+      `"firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`,
+      `"cd server && pnpm run dev -- --port ${availablePorts.backend} --postgres-port ${availablePorts.postgres}"`,
+      `"cd ui && pnpm run dev -- --port ${availablePorts.frontend} --strictPort --api-url http://localhost:${availablePorts.backend} --open"`
+    ];
+
+    // Start loading animation
+    const spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let spinnerIndex = 0;
+    let dotCount = 0;
     
-    // Clean up temp firebase config
-    setTimeout(() => {
+    const spinnerInterval = setInterval(() => {
+      const dots = '.'.repeat((dotCount % 4));
+      const spaces = ' '.repeat(3 - dots.length);
+      
+      process.stdout.write(`\r${spinnerChars[spinnerIndex]} Starting services${dots}${spaces}`);
+      
+      spinnerIndex = (spinnerIndex + 1) % spinnerChars.length;
+      dotCount++;
+    }, 150);
+
+    // Start services with clean output monitoring
+    const child = spawn('npx', [
+      'concurrently', 
+      '-c', 'cyan,magenta,green',  // Colors for the three services
+      '-n', 'firebase,server,frontend',  // Names for the services
+      '--handle-input',
+      '--success', 'first',
+      ...commands
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe'],  // Capture stdout/stderr initially
+      shell: true,
+      cwd: path.join(__dirname, '..')
+    });
+
+    let startupComplete = false;
+    let startupTimeout;
+    let servicesStarted = new Set();
+    let capturedOutput = '';
+
+    // Set a timeout for startup detection
+    startupTimeout = setTimeout(() => {
+      if (!startupComplete) {
+        clearInterval(spinnerInterval);
+        process.stdout.write('\r' + ' '.repeat(50) + '\r'); // Clear spinner line
+        
+        // Show any captured output first
+        if (capturedOutput) {
+          process.stdout.write(capturedOutput);
+        }
+        console.log('✅ All services are starting up...\n');
+        showServiceInfo(availablePorts, cliArgs.useWrangler);
+        startupComplete = true;
+        // Switch to live output
+        child.stdout.pipe(process.stdout);
+        child.stderr.pipe(process.stderr);
+      }
+    }, 15000); // 15 second fallback - Firebase can be slow
+
+    // Monitor output for service startup indicators
+    child.stdout.on('data', (data) => {
+      const output = data.toString();
+      
+      if (!startupComplete) {
+        // Capture output during startup
+        capturedOutput += output;
+        
+        // Look for the key startup indicators
+        if (output.includes('Auth Emulator') || output.includes('emulator started')) {
+          servicesStarted.add('firebase');
+        }
+        if (output.includes('VITE') && output.includes('ready')) {
+          servicesStarted.add('frontend');
+        }
+        if (output.includes('🚀 Starting Node.js server') || output.includes('API available')) {
+          servicesStarted.add('server');
+        }
+
+        // Wait specifically for Firebase "All emulators ready!" message
+        if (output.includes('All emulators ready!') || output.includes('✔  All emulators ready!')) {
+          clearTimeout(startupTimeout);
+          if (!startupComplete) {
+            // Wait 1 second for Firebase to finish all its output, then show our clean summary
+            setTimeout(() => {
+              clearInterval(spinnerInterval);
+              process.stdout.write('\r' + ' '.repeat(50) + '\r'); // Clear spinner line
+              
+              // Show all the captured startup output first
+              process.stdout.write(capturedOutput);
+              
+              console.log('✅ All services started successfully!\n');
+              showServiceInfo(availablePorts, cliArgs.useWrangler);
+              startupComplete = true;
+              // Switch to live output for ongoing logs
+              child.stdout.pipe(process.stdout);
+              child.stderr.pipe(process.stderr);
+            }, 1000);
+          }
+        }
+      }
+    });
+
+    child.stderr.on('data', (data) => {
+      const output = data.toString();
+      
+      if (!startupComplete) {
+        // Check for startup errors
+        if (output.includes('Error:') || output.includes('error') || output.includes('failed')) {
+          clearTimeout(startupTimeout);
+          console.error('❌ Error during startup:');
+          console.error(output);
+          process.exit(1);
+        }
+      }
+    });
+
+    // Cleanup on exit
+    const cleanup = () => {
+      // Clean up temporary firebase.json
+      const firebaseConfigPath = path.join(__dirname, '../firebase.json');
+      if (existsSync(firebaseConfigPath)) {
+        try {
+          unlinkSync(firebaseConfigPath);
+        } catch (error) {
+          // Silent cleanup failure
+        }
+      }
+    };
+
+    ['SIGINT', 'SIGTERM', 'SIGBREAK'].forEach(signal => {
+      process.on(signal, () => {
+        console.log(`\n🛑 Shutting down services...`);
+        cleanup();
+        process.exit(0);
+      });
+    });
+
+    child.on('exit', (code) => {
+      cleanup();
+      if (code !== 0) {
+        console.log(`\n❌ Services stopped with error code ${code}`);
+      }
+      process.exit(code);
+    });
+
+    child.on('error', (error) => {
+      handleError(error, 'Error starting services');
+    });
+
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+function showServiceInfo(availablePorts, useWrangler) {
+  console.log('🎉 Your app is ready at:');
+  console.log(`   Frontend:  \x1b[32mhttp://localhost:${availablePorts.frontend}\x1b[0m`);
+  console.log(`   Backend:   http://localhost:${availablePorts.backend}`);
+  console.log(`   Firebase:  http://localhost:${availablePorts.firebaseUI}`);
+  
+  // Determine database URL
+  let databaseUrl = `postgresql://postgres:password@localhost:${availablePorts.postgres}/postgres`;
+  if (useWrangler) {
+    // For Cloudflare Workers, try to read the actual DATABASE_URL
+    const envPath = path.join(__dirname, '../server/.env');
+    if (existsSync(envPath)) {
       try {
-        if (tempConfigPath && existsSync(tempConfigPath)) {
-          unlinkSync(tempConfigPath);
+        const envContent = readFileSync(envPath, 'utf-8');
+        const dbUrlMatch = envContent.match(/DATABASE_URL=(.+)/);
+        if (dbUrlMatch) {
+          databaseUrl = dbUrlMatch[1];
         }
       } catch (error) {
-        // Ignore cleanup errors
+        // Silent fallback
       }
-      
-      process.exit(0);
-    }, 1000);
-  };
-
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGBREAK', () => shutdown('SIGBREAK')); // Windows specific
-
-  child.on('exit', (code) => {
-    console.log(`\n✅ Services stopped with code ${code}`);
-    
-    // Clean up temp firebase config
-    try {
-      if (tempConfigPath && existsSync(tempConfigPath)) {
-        unlinkSync(tempConfigPath);
-      }
-    } catch (error) {
-      // Ignore cleanup errors
     }
-    
-    process.exit(code);
-  });
-
-  child.on('error', (error) => {
-    console.error('❌ Error starting services:', error.message);
-    
-    // Clean up temp firebase config
-    try {
-      if (tempConfigPath && existsSync(tempConfigPath)) {
-        unlinkSync(tempConfigPath);
-      }
-    } catch (error) {
-      // Ignore cleanup errors
-    }
-    
-    process.exit(1);
-  });
+  }
+  
+  console.log(`   Database:  ${databaseUrl}`);
+  
+  if (useWrangler) {
+    console.log('\n⚡ Running in Cloudflare Workers mode');
+  } else {
+    console.log('\n🗄️  Using embedded PostgreSQL database');
+  }
+  
+  console.log('\n📋 Service logs:\n');
 }
 
 startServices().catch((error) => {
-  console.error('❌ Failed to start services:', error);
-  process.exit(1);
-}); 
+  handleError(error);
+});

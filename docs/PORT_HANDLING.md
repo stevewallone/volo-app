@@ -10,11 +10,10 @@ volo-app automatically handles port assignments to prevent conflicts and enable 
 
 When you run `pnpm run dev`, volo-app:
 
-1. **Reads your intended ports** from `server/.env` (created during setup)
-2. **Checks port availability** for all services
-3. **Finds alternatives** if any ports are occupied
-4. **Displays clear status** showing which ports are being used
-5. **Starts all services** with the assigned ports
+1. **Attempts to use default ports** for all services
+2. **Automatically finds alternatives** if any ports are occupied
+3. **Displays clear status** showing which ports are being used
+4. **Starts all services** with the assigned ports
 
 ### Services and Default Ports
 
@@ -31,17 +30,14 @@ When you run `pnpm run dev`, volo-app:
 When starting development, you'll see output like this:
 
 ```
-🔌 Port assignments:
-  ✅ backend: 8787 (intended)
-  🔄 frontend: 5174 (fallback (5173 occupied))
-  ✅ postgres: 5433 (intended)
-  ✅ firebaseAuth: 9099 (intended)
-  ✅ firebaseUI: 4000 (intended)
+🎉 Your app is ready at:
+   Frontend:  http://localhost:5173
+   Backend:   http://localhost:8787
+   Firebase:  http://localhost:4000
+   Database:  postgresql://postgres:password@localhost:5433/postgres
 ```
 
-### Status Icons:
-- **✅ Intended**: Using the preferred port from your configuration
-- **🔄 Fallback**: Using an alternative port due to conflict
+**Note:** If default ports are occupied, the system automatically finds available alternatives.
 
 ## 🔄 Multiple Instance Support
 
@@ -125,16 +121,19 @@ DATABASE_URL=postgresql://user:password@host.neon.tech:5432/mydb
 
 ## 🔧 Configuration
 
-### Port Precedence
+### Port Management
 
-1. **CLI parameters** (passed automatically by the port management system)
-2. **Environment variables** (from `server/.env`)
-3. **Default values** (hardcoded fallbacks)
+The system uses simple defaults and automatic port detection:
 
-Your `server/.env` contains your intended ports:
+1. **Default values** (hardcoded in the run-dev.js script)
+2. **Automatic alternatives** if defaults are occupied
+3. **No manual configuration needed**
+
+Your `server/.env` focuses on essential configuration:
 
 ```env
 DATABASE_URL=postgresql://postgres:password@localhost:5433/postgres
-PORT=8787
 FIREBASE_PROJECT_ID=demo-project
 ```
+
+**Note:** Port numbers in DATABASE_URL are handled automatically - the system will update the actual port used for embedded PostgreSQL.

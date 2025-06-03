@@ -19,7 +19,7 @@ console.log('🔧 Running post-setup tasks...');
 // Check if required config files exist
 const requiredFiles = [
   'ui/src/lib/firebase-config.json',
-  'server/.dev.vars'
+  'server/.env'  // Changed from .dev.vars to .env for Node.js runtime
 ];
 
 for (const file of requiredFiles) {
@@ -44,7 +44,7 @@ function parseSupabaseInfo(databaseUrl) {
  */
 async function testDatabaseConnectivity() {
   try {
-    execSync(`npx dotenv-cli -e .dev.vars -- node scripts/db-connectivity-test.mjs`, {
+    execSync(`npx dotenv-cli -e .env -- node scripts/db-connectivity-test.mjs`, {
       cwd: join(projectRoot, 'server'),
       timeout: 15000,
       stdio: 'pipe'
@@ -115,13 +115,13 @@ async function waitForDatabaseReady(maxWaitTime = 120000) { // 2 minutes max
  * Enhanced retry function that tests database connectivity for all PostgreSQL databases
  */
 async function retryDatabasePush(maxRetries = 3) {
-  // Read the DATABASE_URL to determine the provider
-  const devVarsPath = join(projectRoot, 'server/.dev.vars');
-  const devVarsContent = fs.readFileSync(devVarsPath, 'utf8');
-  const databaseUrlMatch = devVarsContent.match(/DATABASE_URL=(.+)/);
+  // Read the DATABASE_URL from .env file (Node.js runtime)
+  const envPath = join(projectRoot, 'server/.env');
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  const databaseUrlMatch = envContent.match(/DATABASE_URL=(.+)/);
   
   if (!databaseUrlMatch) {
-    throw new Error('DATABASE_URL not found in .dev.vars');
+    throw new Error('DATABASE_URL not found in .env');
   }
   
   const databaseUrl = databaseUrlMatch[1];
@@ -136,14 +136,14 @@ async function retryDatabasePush(maxRetries = 3) {
     try {
       console.log('🔒 Setting up secure database schema (private schema for data protection)...');
       
-      // First, set up the private schema
-      execSync('npx dotenv-cli -e .dev.vars -- node scripts/setup-private-schema.mjs', {
+      // First, set up the private schema (using .env for Node.js)
+      execSync('npx dotenv-cli -e .env -- node scripts/setup-private-schema.mjs', {
         cwd: join(projectRoot, 'server'),
         stdio: 'inherit'
       });
       
-      // Then push the schema with Drizzle
-      execSync('npx dotenv-cli -e .dev.vars -- pnpm db:push', {
+      // Then push the schema with Drizzle (using .env for Node.js)
+      execSync('npx dotenv-cli -e .env -- pnpm db:push', {
         cwd: join(projectRoot, 'server'),
         stdio: 'inherit'
       });
@@ -169,8 +169,8 @@ async function retryDatabasePush(maxRetries = 3) {
           console.log('💡 This can happen when cloud databases take longer than expected to provision.');
           console.log('   Solutions:');
           console.log('   1. Wait 1-2 minutes and try the manual setup:');
-          console.log('      cd server && npx dotenv-cli -e .dev.vars -- node scripts/setup-private-schema.mjs');
-          console.log('      cd server && npx dotenv-cli -e .dev.vars -- pnpm db:push');
+          console.log('      cd server && npx dotenv-cli -e .env -- node scripts/setup-private-schema.mjs');
+          console.log('      cd server && npx dotenv-cli -e .env -- pnpm db:push');
           console.log('   2. Check your database provider dashboard to ensure the database is fully active');
           console.log('   3. Verify your connection string is correct');
         }
@@ -203,7 +203,7 @@ try {
   console.log('');
   console.log('🚀 Your app is ready! To start development:');
   console.log('   cd your-app-name');
-  console.log('   pnpm run dev:start');
+  console.log('   pnpm run dev');
   console.log('');
   console.log('📚 Need help? Check the README.md file');
 
@@ -211,7 +211,7 @@ try {
   console.error('❌ Post-setup failed:', error.message);
   console.log('');
   console.log('💡 You can complete setup manually by running:');
-  console.log('   cd server && npx dotenv-cli -e .dev.vars -- node scripts/setup-private-schema.mjs');
-  console.log('   cd server && npx dotenv-cli -e .dev.vars -- pnpm db:push');
+  console.log('   cd server && npx dotenv-cli -e .env -- node scripts/setup-private-schema.mjs');
+  console.log('   cd server && npx dotenv-cli -e .env -- pnpm db:push');
   process.exit(1);
 } 

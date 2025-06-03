@@ -56,6 +56,14 @@ export function getDatabaseUrl(): string | undefined {
 }
 
 /**
+ * Check if DATABASE_URL points to local embedded postgres
+ */
+export function isLocalEmbeddedPostgres(): boolean {
+  const dbUrl = getDatabaseUrl();
+  return dbUrl ? dbUrl.includes('localhost:5433') : false;
+}
+
+/**
  * Get Firebase project ID from environment
  */
 export function getFirebaseProjectId(): string {

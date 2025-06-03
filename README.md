@@ -5,8 +5,6 @@ This is the official template repository for [create-volo-app](https://github.co
 > **⚡ Quick Start:** Use the CLI for the best experience:
 > ```bash
 > npx create-volo-app my-app
-> cd my-app
-> pnpm run dev:start
 > ```
 
 ## 🎯 **Template Overview**

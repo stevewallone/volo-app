@@ -30,15 +30,20 @@ Many boilerplates offer a rapid 'hello world' experience for local development b
 
 ## 🛠️ **Development**
 
-Start both frontend and backend:
+Start both frontend and backend (with embedded postgres database if no other db was selected)
 
 ```bash
-pnpm run dev:start
+pnpm run dev
 ```
 
-This runs:
-- **Frontend**: `http://localhost:5173`
-- **Backend API**: `http://localhost:8787`
+This automatically assigns available ports and displays them on startup:
+- **Frontend**: Usually `http://localhost:5173` (or next available)
+- **Backend API**: Usually `http://localhost:8787` (or next available)
+- **PostgreSQL**: Embedded database on dynamic port (starts from 5433)
+
+The system handles port conflicts automatically. For multiple projects, use separate folders.
+
+> **📋 Port Management**: See [`docs/PORT_HANDLING.md`](docs/PORT_HANDLING.md) for details on running multiple instances and port conflict resolution.
 
 ### Individual Commands
 
@@ -113,6 +118,8 @@ protectedRoutes.get('/private-route', (c) => {
 - Use Tailwind utility classes throughout
 
 ## 🚀 **Deployment**
+
+> **Note**: Embedded PostgreSQL is for local development only. Production deployments require an external database (configured during setup).
 
 ### Backend (Cloudflare Workers)
 

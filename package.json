@@ -4,11 +4,13 @@
   "description": "Full-stack React + Hono template with Firebase Auth, Neon DB, and Cloudflare deployment",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run firebase:emulator\" \"npm run setup:local\" \"cd server && pnpm run dev\" \"cd ui && pnpm run dev -- --open\"",
-    "dev:start": "concurrently \"cd server && pnpm run dev\" \"cd ui && pnpm run dev -- --open\"",
+    "dev": "node scripts/run-dev.js",
     "firebase:emulator": "firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator",
     "setup:local": "node scripts/setup-local.js",
     "post-setup": "node scripts/post-setup.js",
+    "connect:auth": "echo '🚧 Production Firebase Auth connection not yet implemented. Coming soon!'",
+    "connect:database": "echo '🚧 Production database connection not yet implemented. Coming soon!'",
+    "connect:deploy": "echo '🚧 Production deployment setup not yet implemented. Coming soon!'",
     "build": "cd ui && pnpm run build",
     "deploy": "cd server && wrangler deploy && echo 'Frontend deployment: Connect your Git repo to Cloudflare Pages'"
   },

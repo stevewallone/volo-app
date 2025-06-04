@@ -1,1 +1,3 @@
-- Tech stack: React (vite), Tailwind, ShadCN, Firebase Auth, Supabase postgres, pnpm, Cloudflare workers + Cloudflare Pages, Hono API
+- Tech stack: React (vite), Tailwind, ShadCN, Firebase Auth, Supabase postgres, pnpm, Node.JS, Hono API
+- Use pnpm add when installing new packages
+- Use `npx shadcn add` to add shadcn components

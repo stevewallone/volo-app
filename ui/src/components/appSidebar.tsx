@@ -23,7 +23,7 @@ export function AppSidebar() {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <Sidebar collapsible="icon" className="h-[calc(100vh-3rem)]">
+    <Sidebar collapsible="icon" className="sticky top-12 h-[calc(100vh-3rem)] z-40">
       <SidebarContent className="overflow-y-auto">
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>

@@ -8,37 +8,48 @@ This application provides a highly opinionated, production-ready foundation for 
 
 Many boilerplates offer a rapid 'hello world' experience for local development but often defer critical decisions about authentication, database integration, and production deployment. This template takes a different approach. We believe that the complexities of a true full-stack application - setting up auth, a database, and distinct hosting for UI and API - are largely unavoidable for production use. By addressing these components comprehensively from the start, this template aims to provide a clearer, more predictable path to a robust, deployable application, minimizing 'surprise' hurdles down the line and fostering a deeper understanding of the full stack architecture.
 
+Start with everything running locally on your machine, then progressively connect to production services when you're ready or dive in and connect them all at app creation.
+
 ## 🚀 **What You Have**
 
+
 **Frontend:**
-- ⚛️ React with TypeScript and Vite
-- 🎨 Tailwind CSS + ShadCN/UI components  
-- 🔐 Firebase Authentication (Google Sign-In configured)
-- 📱 Responsive, modern UI out of the box
+- ⚛️ React + TypeScript + Vite
+- 🎨 Tailwind CSS + ShadCN components
+- 🔐 Firebase Authentication (Google Sign-In)
 
 **Backend:**
-- 🔥 Hono API framework
-- ☁️ Cloudflare Workers (edge deployment ready)
-- 🗄️ PostgreSQL database with Drizzle ORM
-- 🔒 JWT-based authentication middleware
+- 🔥 Hono API backend (NodeJS)
+- 🗄️ PostgreSQL with Drizzle ORM
+- 🔑 Firebase Admin SDK
 
-**Infrastructure:**
-- 🌐 Cloudflare Pages (frontend hosting)
-- ⚡ Cloudflare Workers (API hosting)  
-- 🗄️ Database configured and schema deployed
-- 🔐 Firebase Authentication set up
+**Local Development (Default):**
+- ⚡ Runs UI + Server + DB + Auth on your computer
+- 🏠 Embedded PostgreSQL database
+- 🔧 Firebase Auth emulator
+- ✅ Zero sign-ins or accounts needed
+
+**Production (when connected):**
+- 🌐 Cloudflare Pages + Workers deployment ready
+- 🗄️ Neon, Supabase, or custom PostgreSQL
+- 🔐 Production Firebase Auth
 
 ## 🛠️ **Development**
 
-Start both frontend and backend:
+Start both frontend and backend (with embedded PostgreSQL database and Firebase emulator):
 
 ```bash
-pnpm run dev:start
+pnpm run dev
 ```
 
-This runs:
-- **Frontend**: `http://localhost:5173`
-- **Backend API**: `http://localhost:8787`
+This automatically assigns available ports and displays them on startup:
+- **Frontend**: Usually `http://localhost:5173` (or next available)
+- **Backend API**: Usually `http://localhost:8787` (or next available)
+- **PostgreSQL**: Embedded database on dynamic port (starts from 5433)
+
+The system handles port conflicts automatically. For multiple projects, use separate folders.
+
+> **📋 Port Management**: See [`docs/PORT_HANDLING.md`](docs/PORT_HANDLING.md) for details on running multiple instances and port conflict resolution.
 
 ### Individual Commands
 
@@ -52,9 +63,47 @@ cd server && pnpm dev
 # Build frontend
 cd ui && pnpm build
 
-# Deploy backend
+# Deploy backend (requires production setup)
 cd server && pnpm run deploy
 ```
+
+## 🔗 **Connecting Production Services**
+
+Your app defaults to everything running locally. Connect to production services when you're ready:
+
+### Connect Production Database
+```bash
+# Choose from available providers
+pnpm connect:database
+
+# Or connect to specific provider
+pnpm connect:database:neon      # Neon PostgreSQL
+pnpm connect:database:supabase  # Supabase PostgreSQL
+pnpm connect:database:custom    # Custom PostgreSQL
+```
+
+### Connect Production Authentication
+```bash
+# Set up production Firebase Auth
+pnpm connect:auth
+```
+
+### Connect Production Deployment
+```bash
+# Set up Cloudflare Workers + Pages deployment
+pnpm connect:deploy
+```
+
+### Check Connection Status
+```bash
+# See what's connected to production vs local
+pnpm connection:status
+```
+
+**What happens when you connect services:**
+- Your `.env` files are automatically updated
+- A backup of your current config is created
+- You can always revert to local development by restoring the backup
 
 ## 📁 **Project Structure**
 
@@ -70,8 +119,12 @@ cd server && pnpm run deploy
 │   │   ├── middleware/   # Auth & other middleware
 │   │   ├── schema/       # Database schema (Drizzle)
 │   │   └── index.ts      # API routes
-│   ├── wrangler.toml     # Cloudflare Worker config
+│   ├── wrangler.toml     # Cloudflare Worker config (when connected)
+│   ├── .env              # Your environmental variables
 │   └── package.json
+├── data/                 # Local development data
+│   ├── postgres/         # Embedded PostgreSQL data
+│   └── firebase-emulator/ # Firebase emulator data
 └── scripts/
     └── post-setup.js     # Setup automation
 ```
@@ -114,6 +167,8 @@ protectedRoutes.get('/private-route', (c) => {
 
 ## 🚀 **Deployment**
 
+> **Note**: Embedded PostgreSQL is for local development only. Production deployments require an external database (configured during setup).
+
 ### Backend (Cloudflare Workers)
 
 ```bash
@@ -155,9 +210,16 @@ Set these in Cloudflare dashboards:
 
 ## 🔐 **Authentication Flow**
 
-Your app includes a complete authentication system:
+Your app includes a complete authentication system that works in both local and production modes:
 
-1. **Login**: Users sign in with Google via Firebase
+### Local Mode (Default)
+1. **Sign in**: Use any email/password combination in the UI
+2. **Storage**: User data stored in local Firebase emulator
+3. **API calls**: Authenticated requests work normally
+4. **Development**: No external accounts needed
+
+### Production Mode (After `pnpm connect:auth`)
+1. **Login**: Users sign in with Google (or other configured providers)
 2. **Token**: Frontend gets Firebase ID token
 3. **API calls**: Token sent in `Authorization: Bearer <token>` header
 4. **Verification**: Backend verifies token and creates/finds user in database
@@ -173,7 +235,7 @@ console.log(response.user);
 
 ## 🗄️ **Database**
 
-Your database is set up with Drizzle ORM:
+Your database is set up with Drizzle ORM and works the same whether local or production:
 
 ### User Schema (included)
 
@@ -213,7 +275,7 @@ export const users = pgTable('users', {
 ```bash
 cd server
 # Check environment variables
-cat .dev.vars
+cat .env
 # Reinstall dependencies
 pnpm install
 ```
@@ -235,8 +297,14 @@ pnpm install
 
 ### Authentication Issues
 
+**Local Development:**
+- Firebase emulator should start automatically with `pnpm dev`
+- Try signing in with any email/password combination
+- Check `data/firebase-emulator/` for persisted data
+
+**Production Mode:**
 1. **Check Firebase config**: `ui/src/lib/firebase-config.json`
-2. **Verify environment variables**: `server/.dev.vars`
+2. **Verify environment variables**: `server/.env`
 3. **Check authorized domains** in Firebase Console
 
 ### Deployment Issues

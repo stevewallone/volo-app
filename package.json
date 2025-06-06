@@ -1,11 +1,19 @@
 {
   "name": "volo-app-template",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Full-stack React + Hono template with Firebase Auth, Neon DB, and Cloudflare deployment",
   "type": "module",
   "scripts": {
-    "dev:start": "concurrently \"cd server && pnpm run dev\" \"cd ui && pnpm run dev -- --open\"",
+    "dev": "node scripts/run-dev.js",
+    "firebase:emulator": "firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator",
     "post-setup": "node scripts/post-setup.js",
+    "connect:auth": "npx create-volo-app --connect --auth",
+    "connect:database": "npx create-volo-app --connect --database",
+    "connect:database:neon": "npx create-volo-app --connect --database neon",
+    "connect:database:supabase": "npx create-volo-app --connect --database supabase",
+    "connect:database:custom": "npx create-volo-app --connect --database custom",
+    "connect:deploy": "npx create-volo-app --connect --deploy",
+    "connection:status": "npx create-volo-app --status",
     "build": "cd ui && pnpm run build",
     "deploy": "cd server && wrangler deploy && echo 'Frontend deployment: Connect your Git repo to Cloudflare Pages'"
   },
@@ -14,7 +22,11 @@
     "pnpm": ">=8.0.0"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "embedded-postgres": "17.5.0-beta.15",
+    "postgres": "^3.4.7",
+    "concurrently": "^8.2.2",
+    "firebase-tools": "^13.0.0",
+    "get-port": "^7.0.0"
   },
   "keywords": [
     "react",

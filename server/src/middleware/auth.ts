@@ -1,19 +1,13 @@
 import { MiddlewareHandler } from 'hono';
 import { verifyFirebaseToken } from '../lib/firebase-auth';
-import { createDbConnection } from '../lib/db';
+import { getDatabase } from '../lib/db';
 import { eq } from 'drizzle-orm';
-import { users } from '../schema/users';
+import { User, users } from '../schema/users';
+import { getFirebaseProjectId, getDatabaseUrl } from '../lib/env';
 
 declare module 'hono' {
   interface ContextVariableMap {
-    user: {
-      id: string;
-      email: string;
-      display_name?: string | null;
-      photo_url?: string | null;
-      created_at: Date;
-      updated_at: Date;
-    };
+    user: User;
   }
 }
 
@@ -25,36 +19,32 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
     }
 
     const token = authHeader.split('Bearer ')[1];
-    const firebaseUser = await verifyFirebaseToken(token, c.env.FIREBASE_PROJECT_ID);
+    const firebaseProjectId = getFirebaseProjectId();
+    const firebaseUser = await verifyFirebaseToken(token, firebaseProjectId);
 
-    // Create database connection
-    const db = createDbConnection(c.env.DATABASE_URL);
+    const databaseUrl = getDatabaseUrl();
+    const db = await getDatabase(databaseUrl);
 
-    // Check if user exists in database
-    const existingUser = await db.select()
-      .from(users)
-      .where(eq(users.id, firebaseUser.id))
-      .limit(1);
-
-    let user = existingUser[0];
-
-    // If user doesn't exist, create them
-    if (!user) {
-      const newUser = {
+    // Upsert: insert if not exists, do nothing if exists
+    await db.insert(users)
+      .values({
         id: firebaseUser.id,
         email: firebaseUser.email!,
         display_name: null,
         photo_url: null,
-      };
+      })
+      .onConflictDoNothing();
 
-      const [createdUser] = await db.insert(users)
-        .values(newUser)
-        .returning();
-      
-      user = createdUser;
+    // Get the user (either just created or already existing)
+    const [user] = await db.select()
+      .from(users)
+      .where(eq(users.id, firebaseUser.id))
+      .limit(1);
+
+    if (!user) {
+      throw new Error('Failed to create or retrieve user');
     }
 
-    // Add user to context
     c.set('user', user);
     await next();
   } catch (error) {

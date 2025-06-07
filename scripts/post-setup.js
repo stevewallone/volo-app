@@ -146,6 +146,7 @@ async function setupLocalDatabase() {
       password: 'password',
       port: postgresPort,
       persistent: true,
+      initdbFlags: ['--encoding=UTF8', '--lc-collate=C', '--lc-ctype=C']
     });
 
     await embeddedPg.initialise();

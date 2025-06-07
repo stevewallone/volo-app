@@ -31,6 +31,7 @@ export const startEmbeddedPostgres = async (port: number = 5433): Promise<string
     password: 'password',
     port: port,
     persistent: true,
+    initdbFlags: ['--encoding=UTF8', '--lc-collate=C', '--lc-ctype=C']
   });
 
   try {

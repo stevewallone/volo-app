@@ -125,16 +125,30 @@ export function updateServerEnvWithPorts(availablePorts, useWrangler) {
   try {
     let updatedContent = envData.content;
     let hasChanges = false;
+    const changesTracked = {
+      path: envData.path,
+      modifications: []
+    };
     
     // Only update DATABASE_URL if it's currently pointing to localhost (embedded postgres)
     const currentDbUrl = envData.content.match(/DATABASE_URL=(.+)/)?.[1]?.trim();
     if (currentDbUrl && currentDbUrl.includes('localhost')) {
-      updatedContent = updatedContent.replace(
-        /DATABASE_URL=postgresql:\/\/postgres:password@localhost:\d+\/postgres/,
-        `DATABASE_URL=postgresql://postgres:password@localhost:${availablePorts.postgres}/postgres`
-      );
-      hasChanges = true;
-      console.log(`📝 Updated embedded PostgreSQL port to ${availablePorts.postgres}`);
+      const originalDbLine = envData.content.match(/DATABASE_URL=.+/)?.[0];
+      const newDbLine = `DATABASE_URL=postgresql://postgres:password@localhost:${availablePorts.postgres}/postgres`;
+      
+      if (originalDbLine && originalDbLine !== newDbLine) {
+        updatedContent = updatedContent.replace(
+          /DATABASE_URL=postgresql:\/\/postgres:password@localhost:\d+\/postgres/,
+          newDbLine
+        );
+        hasChanges = true;
+        changesTracked.modifications.push({
+          type: 'replace',
+          original: originalDbLine,
+          modified: newDbLine
+        });
+        console.log(`📝 Updated embedded PostgreSQL port to ${availablePorts.postgres}`);
+      }
     }
     
     // Only add/update Firebase Auth emulator if we're not using production Firebase
@@ -143,15 +157,30 @@ export function updateServerEnvWithPorts(availablePorts, useWrangler) {
     const isUsingLocalFirebase = !firebaseProjectId || firebaseProjectId === 'demo-project';
     
     if (isUsingLocalFirebase) {
+      const firebaseAuthLine = `FIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}`;
+      
       if (updatedContent.includes('FIREBASE_AUTH_EMULATOR_HOST=')) {
-        updatedContent = updatedContent.replace(
-          /FIREBASE_AUTH_EMULATOR_HOST=localhost:\d+/,
-          `FIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}`
-        );
-        hasChanges = true;
+        const originalFirebaseLine = envData.content.match(/FIREBASE_AUTH_EMULATOR_HOST=.+/)?.[0];
+        if (originalFirebaseLine && originalFirebaseLine !== firebaseAuthLine) {
+          updatedContent = updatedContent.replace(
+            /FIREBASE_AUTH_EMULATOR_HOST=localhost:\d+/,
+            firebaseAuthLine
+          );
+          hasChanges = true;
+          changesTracked.modifications.push({
+            type: 'replace',
+            original: originalFirebaseLine,
+            modified: firebaseAuthLine
+          });
+        }
       } else {
-        updatedContent += `\n# Firebase Auth Emulator (dynamically set)\nFIREBASE_AUTH_EMULATOR_HOST=localhost:${availablePorts.firebaseAuth}\n`;
+        const firebaseSection = `\n# Firebase Auth Emulator (dynamically set)\n${firebaseAuthLine}\n`;
+        updatedContent += firebaseSection;
         hasChanges = true;
+        changesTracked.modifications.push({
+          type: 'append',
+          added: firebaseSection
+        });
       }
       console.log(`📝 Updated Firebase Auth emulator port to ${availablePorts.firebaseAuth}`);
     }
@@ -160,11 +189,8 @@ export function updateServerEnvWithPorts(availablePorts, useWrangler) {
     if (hasChanges && updatedContent !== envData.content) {
       writeFileSync(envData.path, updatedContent);
       
-      // Return original state for restoration
-      return {
-        originalContent: envData.content,
-        path: envData.path
-      };
+      // Return tracked changes for intelligent restoration
+      return changesTracked;
     }
     
     return null;
@@ -175,11 +201,11 @@ export function updateServerEnvWithPorts(availablePorts, useWrangler) {
 }
 
 /**
- * Restores the original content of an environment file
- * @param {Object|null} envState - Original env state from updateServerEnvWithPorts
+ * Restores only the specific dynamic changes made by the script, preserving other modifications
+ * @param {Object|null} envState - Tracked changes from updateServerEnvWithPorts
  */
 export function restoreEnvFile(envState) {
-  if (!envState || !envState.originalContent || !envState.path) {
+  if (!envState || !envState.modifications || envState.modifications.length === 0) {
     return;
   }
 
@@ -188,8 +214,32 @@ export function restoreEnvFile(envState) {
   }
 
   try {
-    writeFileSync(envState.path, envState.originalContent);
-    console.log('✅ Restored original server .env file');
+    let currentContent = readFileSync(envState.path, 'utf-8');
+    let hasChanges = false;
+
+    // Apply changes in reverse order to handle appends correctly
+    for (let i = envState.modifications.length - 1; i >= 0; i--) {
+      const change = envState.modifications[i];
+      
+      if (change.type === 'replace') {
+        // Only revert if our modified line is still present (unchanged by user)
+        if (currentContent.includes(change.modified)) {
+          currentContent = currentContent.replace(change.modified, change.original);
+          hasChanges = true;
+        }
+      } else if (change.type === 'append') {
+        // Only remove if our appended content is still present at the end
+        if (currentContent.endsWith(change.added)) {
+          currentContent = currentContent.slice(0, -change.added.length);
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (hasChanges) {
+      writeFileSync(envState.path, currentContent);
+      console.log('✅ Restored original server .env file (preserving user changes)');
+    }
   } catch (error) {
     console.error('⚠️ Warning: Could not restore server .env file:', error.message);
   }

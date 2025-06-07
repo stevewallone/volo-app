@@ -124,9 +124,11 @@ pnpm connection:status
 │   └── package.json
 ├── data/                 # Local development data
 │   ├── postgres/         # Embedded PostgreSQL data
-│   └── firebase-emulator/ # Firebase emulator data
+│   └── firebase-emulator/ # Firebase emulator data (auto-backed up)
 └── scripts/
-    └── post-setup.js     # Setup automation
+    ├── post-setup.js     # Setup automation
+    ├── run-dev.js        # Development server runner
+    └── periodic-emulator-backup.js # Firebase data backup (runs automatically)
 ```
 
 ## 🔧 **Customization**
@@ -301,6 +303,7 @@ pnpm install
 - Firebase emulator should start automatically with `pnpm dev`
 - Try signing in with any email/password combination
 - Check `data/firebase-emulator/` for persisted data
+- **Data Protection**: Emulator data is automatically backed up every 60 seconds and on clean shutdown to prevent data loss during crashes
 
 **Production Mode:**
 1. **Check Firebase config**: `ui/src/lib/firebase-config.json`

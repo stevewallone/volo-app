@@ -184,6 +184,8 @@ async function startServices() {
     // Add Firebase emulator if using local Firebase
     if (config.useLocalFirebase) {
       commands.push(`"firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`);
+      // Add periodic backup script to prevent data loss during crashes
+      commands.push(`"node ./scripts/periodic-emulator-backup.js"`);
     }
     
     // Add backend server
@@ -235,6 +237,8 @@ async function startServices() {
     if (config.useLocalFirebase) {
       serviceNames.push('firebase');
       serviceColors.push('cyan');
+      serviceNames.push('backup');
+      serviceColors.push('yellow');
     }
     serviceNames.push('server');
     serviceColors.push('magenta');

@@ -10,21 +10,26 @@ import * as schema from './schema/users';
 
 const app = new Hono();
 
-// Environment context middleware - handle both Node.js and Cloudflare Workers
+// Check once if we're in Node.js environment
+const isNodeEnv = typeof process !== 'undefined' && process.env?.NODE_ENV !== undefined;
+
+// Set environment context once based on the runtime
+if (isNodeEnv) {
+  console.log(`Setting env context from process.env - ${JSON.stringify(process.env)}`);
+  // In Node.js environment, use process.env
+  setEnvContext(process.env);
+}
+
+// Environment context middleware - only needed for Cloudflare Workers
 app.use('*', async (c, next) => {
-  // In Cloudflare Workers, c.env contains the environment variables
-  // In Node.js with Hono, c.env will be undefined/empty, so we fall back to process.env
-  if (c.env && Object.keys(c.env).length > 0) {
-    // Cloudflare Workers environment
+  // In Cloudflare Workers, set context from c.env (only if not already set for Node.js)
+  if (!isNodeEnv) {
+    console.log(`Setting env context from c.env - ${JSON.stringify(c.env)}`);
     setEnvContext(c.env);
-  } else {
-    // Node.js environment - use process.env
-    setEnvContext(process.env);
   }
   
   await next();
   // No need to clear context - env vars are the same for all requests
-  // In fact, if it is cleared, that could  create a race condition and unpredicatable behavior.
 });
 
 // Middleware

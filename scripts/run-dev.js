@@ -214,7 +214,7 @@ async function startServices() {
 
     // Update wrangler.toml with dynamic port (only for wrangler mode)
     if (cliArgs.useWrangler) {
-      wranglerConfigState = updateWranglerConfigWithPort(availablePorts);
+      wranglerConfigState = updateWranglerConfigWithPort(availablePorts, config.useLocalFirebase);
     }
 
     // Create temporary firebase.json for emulator (only if using local Firebase)

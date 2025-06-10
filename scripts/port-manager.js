@@ -356,11 +356,12 @@ export function readWranglerConfig() {
 }
 
 /**
- * Updates wrangler.toml file with dynamic port configuration
+ * Updates wrangler.toml file with dynamic port configuration and Firebase emulator settings
  * @param {Object} availablePorts - Object with port assignments
+ * @param {boolean} useFirebaseEmulator - Whether to add Firebase emulator host
  * @returns {Object|null} Original config state for restoration, or null if no changes made
  */
-export function updateWranglerConfigWithPort(availablePorts) {
+export function updateWranglerConfigWithPort(availablePorts, useFirebaseEmulator = false) {
   const configData = readWranglerConfig();
   if (!configData) {
     console.error('❌ No wrangler.toml file found. Cannot update dynamic port.');
@@ -419,10 +420,51 @@ export function updateWranglerConfigWithPort(availablePorts) {
       });
     }
     
+    // Handle Firebase emulator configuration in [vars] section
+    if (useFirebaseEmulator) {
+      const firebaseEmulatorLine = `FIREBASE_AUTH_EMULATOR_HOST = "localhost:${availablePorts.firebaseAuth}"`;
+      
+      if (updatedContent.includes('[vars]')) {
+        // Check if FIREBASE_AUTH_EMULATOR_HOST already exists
+        const firebaseEmulatorMatch = updatedContent.match(/^FIREBASE_AUTH_EMULATOR_HOST\s*=.*/m);
+        
+        if (firebaseEmulatorMatch) {
+          // Update existing line
+          const originalLine = firebaseEmulatorMatch[0];
+          updatedContent = updatedContent.replace(
+            /^FIREBASE_AUTH_EMULATOR_HOST\s*=.*/m,
+            firebaseEmulatorLine
+          );
+          hasChanges = true;
+          changesTracked.modifications.push({
+            type: 'replace',
+            original: originalLine,
+            modified: firebaseEmulatorLine
+          });
+        } else {
+          // Add after [vars] section
+          const varsMatch = updatedContent.match(/(\[vars\](?:\r?\n(?:[^[]*)?)*)/);
+          if (varsMatch) {
+            const varsSection = varsMatch[1];
+            const replacement = `${varsSection}${firebaseEmulatorLine}\n`;
+            updatedContent = updatedContent.replace(varsMatch[1], replacement);
+            hasChanges = true;
+            changesTracked.modifications.push({
+              type: 'insert_after_vars',
+              added: `${firebaseEmulatorLine}\n`
+            });
+          }
+        }
+      }
+      console.log(`📝 Updated wrangler.toml Firebase Auth emulator to localhost:${availablePorts.firebaseAuth}`);
+    }
+    
     // Only write if content actually changed
     if (hasChanges && updatedContent !== configData.content) {
       writeFileSync(configData.path, updatedContent);
-      console.log(`📝 Updated wrangler.toml port to ${availablePorts.backend}`);
+      if (!useFirebaseEmulator) {
+        console.log(`📝 Updated wrangler.toml port to ${availablePorts.backend}`);
+      }
       
       // Return tracked changes for intelligent restoration
       return changesTracked;
@@ -434,6 +476,8 @@ export function updateWranglerConfigWithPort(availablePorts) {
     return null;
   }
 }
+
+
 
 /**
  * Restores only the specific dynamic changes made to wrangler.toml
@@ -476,6 +520,13 @@ export function restoreWranglerConfig(configState) {
             /(\[dev\]\r?\n)port = \d+\n/,
             '$1'
           );
+          hasChanges = true;
+        }
+      } else if (change.type === 'insert_after_vars') {
+        // Remove the Firebase emulator line we added after [vars]
+        const firebaseLineRegex = /FIREBASE_AUTH_EMULATOR_HOST\s*=\s*"localhost:\d+"\n/;
+        if (firebaseLineRegex.test(currentContent)) {
+          currentContent = currentContent.replace(firebaseLineRegex, '');
           hasChanges = true;
         }
       }

@@ -11,7 +11,7 @@ import * as schema from './schema/users';
 const app = new Hono();
 
 // Check once if we're in Node.js environment
-const isNodeEnv = typeof process !== 'undefined' && process.env?.NODE_ENV !== undefined;
+const isNodeEnv = process?.env?.NODE_ENV != null;
 
 // Set environment context once based on the runtime
 if (isNodeEnv) {

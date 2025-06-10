@@ -6,6 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 FIREBASE_PROJECT_ID = "{{FIREBASE_PROJECT_ID}}"
 DATABASE_URL = "{{DATABASE_URL}}"
+# FIREBASE_AUTH_EMULATOR_HOST will be dynamically set when using emulator
 
 # Development tools configuration
 [dev]

@@ -377,25 +377,23 @@ export function updateWranglerConfigWithPort(availablePorts) {
     
     // Check if [dev] section exists
     if (updatedContent.includes('[dev]')) {
-      // Check if port is already set in [dev] section
-      const portLineMatch = updatedContent.match(/^port\s*=\s*\d+$/m);
+      // Check if port is already set in [dev] section (handle comments and whitespace)
+      const portLineMatch = updatedContent.match(/^port\s*=\s*\d+.*$/m);
       const newPortLine = `port = ${availablePorts.backend}`;
       
       if (portLineMatch) {
         // Port line exists, update it
         const originalPortLine = portLineMatch[0];
-        if (originalPortLine !== newPortLine) {
-          updatedContent = updatedContent.replace(
-            /^port\s*=\s*\d+$/m,
-            newPortLine
-          );
-          hasChanges = true;
-          changesTracked.modifications.push({
-            type: 'replace',
-            original: originalPortLine,
-            modified: newPortLine
-          });
-        }
+        updatedContent = updatedContent.replace(
+          /^port\s*=\s*\d+.*$/m,
+          newPortLine
+        );
+        hasChanges = true;
+        changesTracked.modifications.push({
+          type: 'replace',
+          original: originalPortLine,
+          modified: newPortLine
+        });
       } else {
         // No port line in [dev] section, add it after [dev]
         const devSectionMatch = updatedContent.match(/\[dev\](\r?\n)/);

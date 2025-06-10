@@ -2,6 +2,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync, readFileSync } from 'fs';
 import {
   getAvailablePorts,
   createFirebaseConfig,
@@ -17,6 +18,30 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Auto-detects if wrangler is being used by checking server's package.json
+ * @returns {boolean} True if wrangler is detected in server dev script
+ */
+function detectWranglerUsage() {
+  try {
+    const serverPackageJsonPath = path.join(__dirname, '../server/package.json');
+    if (!existsSync(serverPackageJsonPath)) {
+      return false;
+    }
+    
+    const packageJson = JSON.parse(readFileSync(serverPackageJsonPath, 'utf-8'));
+    const devScript = packageJson.scripts?.dev;
+    
+    if (!devScript) {
+      return false;
+    }
+    
+    return devScript.includes('wrangler dev');
+  } catch (error) {
+    return false;
+  }
+}
 
 function parseCliArgs() {
   const args = process.argv.slice(2);
@@ -160,6 +185,17 @@ async function startServices() {
   let firebaseConfigPath = null;
 
   try {
+    // Auto-detect wrangler usage
+    const autoDetectedWrangler = detectWranglerUsage();
+    const useWrangler = cliArgs.useWrangler || autoDetectedWrangler;
+    
+    if (autoDetectedWrangler && !cliArgs.useWrangler) {
+      console.log('⚡ Auto-detected Cloudflare Workers mode');
+    }
+    
+    // Override CLI args with auto-detection result
+    cliArgs.useWrangler = useWrangler;
+    
     // Detect environment configuration
     const config = detectEnvironmentConfiguration();
     
@@ -254,6 +290,8 @@ async function startServices() {
     serviceNames.push('frontend');
     serviceColors.push('green');
 
+
+
     // Start services with clean output monitoring
     const child = spawn('npx', [
       'concurrently', 
@@ -308,7 +346,7 @@ async function startServices() {
         if (output.includes('VITE') && output.includes('ready')) {
           servicesStarted.add('frontend');
         }
-        if (output.includes('🚀 Starting Node.js server') || output.includes('API available')) {
+        if (output.includes('🚀 Starting Node.js server') || output.includes('API available') || output.includes('Ready on')) {
           servicesStarted.add('server');
         }
 

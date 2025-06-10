@@ -16,7 +16,18 @@ export function clearEnvContext() {
 }
 
 function getEnvSource(): EnvLike {
-  return contextEnv || process.env;
+  // If contextEnv is set (from middleware), use it
+  if (contextEnv) {
+    return contextEnv;
+  }
+  
+  // Fallback to process.env (for environments where middleware hasn't run yet)
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env;
+  }
+  
+  // Last resort - empty object
+  return {};
 }
 
 /**
@@ -34,7 +45,10 @@ export function getEnv(key: string, defaultValue?: string): string | undefined {
 export function getRequiredEnv(key: string): string {
   const value = getEnv(key);
   if (!value) {
-    throw new Error(`Required environment variable ${key} is not set`);
+    // Include debug info about the environment source
+    const envSource = contextEnv ? 'contextEnv' : 'process.env';
+    const availableKeys = Object.keys(getEnvSource()).slice(0, 5); // Show first 5 keys for debugging
+    throw new Error(`Required environment variable ${key} is not set. Environment source: ${envSource}, Available keys: [${availableKeys.join(', ')}${availableKeys.length < Object.keys(getEnvSource()).length ? '...' : ''}]`);
   }
   return value;
 }
@@ -76,12 +90,4 @@ export function getFirebaseProjectId(): string {
  */
 export function getNodeEnv() {
   return process.env;
-}
-
-/**
- * Type guard to check if we're in a Cloudflare Workers environment
- */
-export function isCloudflareEnv(source: EnvLike): boolean {
-  // In Cloudflare Workers, process.env is not available or is empty
-  return typeof process === 'undefined' || Object.keys(process.env).length === 0;
 } 

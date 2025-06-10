@@ -9,5 +9,4 @@ DATABASE_URL = "{{DATABASE_URL}}"
 
 # Development tools configuration
 [dev]
-port = 8787
 local_protocol = "http" 

@@ -10,7 +10,9 @@ import {
   cleanupFirebaseConfig,
   checkDatabaseConfiguration,
   getDatabaseUrl,
-  readServerEnv
+  readServerEnv,
+  updateWranglerConfigWithPort,
+  restoreWranglerConfig
 } from './port-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -154,6 +156,7 @@ async function startServices() {
 
   // Store cleanup state
   let envState = null;
+  let wranglerConfigState = null;
   let firebaseConfigPath = null;
 
   try {
@@ -173,6 +176,11 @@ async function startServices() {
       envState = updateServerEnvWithPorts(availablePorts, cliArgs.useWrangler);
     }
 
+    // Update wrangler.toml with dynamic port (only for wrangler mode)
+    if (cliArgs.useWrangler) {
+      wranglerConfigState = updateWranglerConfigWithPort(availablePorts);
+    }
+
     // Create temporary firebase.json for emulator (only if using local Firebase)
     if (config.useLocalFirebase) {
       firebaseConfigPath = createFirebaseConfig(availablePorts);
@@ -190,7 +198,8 @@ async function startServices() {
     
     // Add backend server
     if (cliArgs.useWrangler) {
-      commands.push(`"cd server && wrangler dev --port ${availablePorts.backend} --local-protocol http"`);
+      // Port is set via wrangler.toml config update, not CLI argument
+      commands.push(`"cd server && wrangler dev --local-protocol http"`);
     } else {
       const serverCmd = config.useLocalDatabase 
         ? `"cd server && pnpm run dev -- --port ${availablePorts.backend}"`
@@ -349,6 +358,9 @@ async function startServices() {
     const cleanup = () => {
       if (envState) {
         restoreEnvFile(envState);
+      }
+      if (wranglerConfigState) {
+        restoreWranglerConfig(wranglerConfigState);
       }
       if (firebaseConfigPath) {
         cleanupFirebaseConfig(firebaseConfigPath);

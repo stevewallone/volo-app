@@ -333,4 +333,161 @@ export function getDatabaseUrl(availablePorts, useWrangler) {
   }
   
   return databaseUrl;
+}
+
+/**
+ * Reads the current content of the wrangler.toml file
+ * @returns {Object|null} Object with {content: string, path: string} or null if file doesn't exist
+ */
+export function readWranglerConfig() {
+  const wranglerPath = path.join(__dirname, '../server/wrangler.toml');
+  
+  if (!existsSync(wranglerPath)) {
+    return null;
+  }
+
+  try {
+    const content = readFileSync(wranglerPath, 'utf-8');
+    return { content, path: wranglerPath };
+  } catch (error) {
+    console.error('⚠️ Warning: Could not read wrangler.toml file:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Updates wrangler.toml file with dynamic port configuration
+ * @param {Object} availablePorts - Object with port assignments
+ * @returns {Object|null} Original config state for restoration, or null if no changes made
+ */
+export function updateWranglerConfigWithPort(availablePorts) {
+  const configData = readWranglerConfig();
+  if (!configData) {
+    console.error('❌ No wrangler.toml file found. Cannot update dynamic port.');
+    return null;
+  }
+
+  try {
+    let updatedContent = configData.content;
+    let hasChanges = false;
+    const changesTracked = {
+      path: configData.path,
+      modifications: []
+    };
+    
+    // Check if [dev] section exists
+    if (updatedContent.includes('[dev]')) {
+      // Check if port is already set in [dev] section
+      const portLineMatch = updatedContent.match(/^port\s*=\s*\d+$/m);
+      const newPortLine = `port = ${availablePorts.backend}`;
+      
+      if (portLineMatch) {
+        // Port line exists, update it
+        const originalPortLine = portLineMatch[0];
+        if (originalPortLine !== newPortLine) {
+          updatedContent = updatedContent.replace(
+            /^port\s*=\s*\d+$/m,
+            newPortLine
+          );
+          hasChanges = true;
+          changesTracked.modifications.push({
+            type: 'replace',
+            original: originalPortLine,
+            modified: newPortLine
+          });
+        }
+      } else {
+        // No port line in [dev] section, add it after [dev]
+        const devSectionMatch = updatedContent.match(/\[dev\](\r?\n)/);
+        if (devSectionMatch) {
+          const insertAfter = devSectionMatch[0];
+          const replacement = `${insertAfter}${newPortLine}\n`;
+          updatedContent = updatedContent.replace(/\[dev\](\r?\n)/, replacement);
+          hasChanges = true;
+          changesTracked.modifications.push({
+            type: 'insert_after_dev',
+            added: `${newPortLine}\n`
+          });
+        }
+      }
+    } else {
+      // No [dev] section, add it at the end
+      const devSection = `\n# Development configuration (dynamically set)\n[dev]\n${newPortLine}\n`;
+      updatedContent += devSection;
+      hasChanges = true;
+      changesTracked.modifications.push({
+        type: 'append',
+        added: devSection
+      });
+    }
+    
+    // Only write if content actually changed
+    if (hasChanges && updatedContent !== configData.content) {
+      writeFileSync(configData.path, updatedContent);
+      console.log(`📝 Updated wrangler.toml port to ${availablePorts.backend}`);
+      
+      // Return tracked changes for intelligent restoration
+      return changesTracked;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('⚠️ Warning: Could not update wrangler.toml file:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Restores only the specific dynamic changes made to wrangler.toml
+ * @param {Object|null} configState - Tracked changes from updateWranglerConfigWithPort
+ */
+export function restoreWranglerConfig(configState) {
+  if (!configState || !configState.modifications || configState.modifications.length === 0) {
+    return;
+  }
+
+  if (!existsSync(configState.path)) {
+    return;
+  }
+
+  try {
+    let currentContent = readFileSync(configState.path, 'utf-8');
+    let hasChanges = false;
+
+    // Apply changes in reverse order to handle appends correctly
+    for (let i = configState.modifications.length - 1; i >= 0; i--) {
+      const change = configState.modifications[i];
+      
+      if (change.type === 'replace') {
+        // Only revert if our modified line is still present (unchanged by user)
+        if (currentContent.includes(change.modified)) {
+          currentContent = currentContent.replace(change.modified, change.original);
+          hasChanges = true;
+        }
+      } else if (change.type === 'append') {
+        // Only remove if our appended content is still present at the end
+        if (currentContent.endsWith(change.added)) {
+          currentContent = currentContent.slice(0, -change.added.length);
+          hasChanges = true;
+        }
+      } else if (change.type === 'insert_after_dev') {
+        // Remove the line we added after [dev]
+        const devSectionMatch = currentContent.match(/(\[dev\]\r?\n)(.+)/);
+        if (devSectionMatch && devSectionMatch[2].startsWith(change.added.trim())) {
+          currentContent = currentContent.replace(
+            /(\[dev\]\r?\n)port = \d+\n/,
+            '$1'
+          );
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (hasChanges) {
+      writeFileSync(configState.path, currentContent);
+      console.log('✅ Restored original wrangler.toml file (preserving user changes)');
+    }
+  } catch (error) {
+    console.error('⚠️ Warning: Could not restore wrangler.toml file:', error.message);
+  }
 } 

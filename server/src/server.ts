@@ -2,7 +2,6 @@ import 'dotenv/config';
 import { serve } from '@hono/node-server';
 import app from './api';
 import { getEnv, getDatabaseUrl, isLocalEmbeddedPostgres } from './lib/env';
-import { startEmbeddedPostgres, stopEmbeddedPostgres } from './lib/embedded-postgres';
 
 // Parse CLI arguments
 const parseCliArgs = () => {
@@ -29,19 +28,11 @@ const getPostgresPortFromDatabaseUrl = (): number => {
 };
 
 const startServer = async () => {
-  // Start embedded PostgreSQL if no external database URL is provided OR if DATABASE_URL points to local embedded postgres
+  console.log(`🚀 Starting Node.js server on port ${port}`);
+  
   if (!getDatabaseUrl() || isLocalEmbeddedPostgres()) {
-    try {
-      const postgresPort = getPostgresPortFromDatabaseUrl();
-      console.log(`🚀 Starting Node.js server on port ${port}`);
-      console.log(`🗄️ Starting embedded PostgreSQL on port ${postgresPort}`);
-      await startEmbeddedPostgres(postgresPort);
-    } catch (error) {
-      console.error('❌ Failed to start embedded PostgreSQL:', error);
-      process.exit(1);
-    }
+    console.log('🔗 Using local database connection (expecting database server on dynamic port)');
   } else {
-    console.log(`🚀 Starting Node.js server on port ${port}`);
     console.log('🔗 Using external database connection');
   }
 
@@ -54,7 +45,6 @@ const startServer = async () => {
 // Graceful shutdown
 const shutdown = async () => {
   console.log('🛑 Shutting down server...');
-  await stopEmbeddedPostgres();
   process.exit(0);
 };
 

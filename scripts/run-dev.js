@@ -137,7 +137,11 @@ function showServiceInfo(availablePorts, useWrangler, config) {
   }
   
   if (config.useLocalDatabase) {
-    console.log(`   Database:  ${getDatabaseUrl(availablePorts, useWrangler)}`);
+    if (useWrangler) {
+      console.log(`   Database:  ${getDatabaseUrl(availablePorts, useWrangler)}`);
+    } else {
+      console.log(`   Database:  postgresql://postgres:***@localhost:${availablePorts.postgres}/postgres`);
+    }
   } else {
     console.log(`   Database: Production database`);
   }
@@ -159,7 +163,7 @@ function showServiceInfo(availablePorts, useWrangler, config) {
   } else {
     console.log('\n🧪 Local development mode');
     if (config.useLocalDatabase && !useWrangler) {
-      console.log('   • Using embedded PostgreSQL database');
+      console.log('   • Using local PostgreSQL database server');
     }
     if (config.useLocalFirebase) {
       console.log('   • Using Firebase Auth emulator');
@@ -225,6 +229,11 @@ async function startServices() {
     // Build commands based on configuration
     const commands = [];
     
+    // Add database server if using local database (and not Wrangler mode)
+    if (config.useLocalDatabase && !cliArgs.useWrangler) {
+      commands.push(`"cd database-server && pnpm run dev -- --port ${availablePorts.postgres}"`);
+    }
+    
     // Add Firebase emulator if using local Firebase
     if (config.useLocalFirebase) {
       commands.push(`"firebase emulators:start --only auth --project demo-project --export-on-exit=./data/firebase-emulator --import=./data/firebase-emulator"`);
@@ -237,10 +246,7 @@ async function startServices() {
       // Port is set via wrangler.toml config update, not CLI argument
       commands.push(`"cd server && wrangler dev --local-protocol http"`);
     } else {
-      const serverCmd = config.useLocalDatabase 
-        ? `"cd server && pnpm run dev -- --port ${availablePorts.backend}"`
-        : `"cd server && pnpm run dev -- --port ${availablePorts.backend}"`;
-      commands.push(serverCmd);
+      commands.push(`"cd server && pnpm run dev -- --port ${availablePorts.backend}"`);
     }
     
     // Add frontend server
@@ -278,6 +284,12 @@ async function startServices() {
     // Determine service names and colors based on configuration
     const serviceNames = [];
     const serviceColors = [];
+    
+    // Add database server if using local database (and not Wrangler mode)
+    if (config.useLocalDatabase && !cliArgs.useWrangler) {
+      serviceNames.push('database');
+      serviceColors.push('blue');
+    }
     
     if (config.useLocalFirebase) {
       serviceNames.push('firebase');
@@ -340,6 +352,9 @@ async function startServices() {
         capturedOutput += output;
         
         // Look for the key startup indicators
+        if (config.useLocalDatabase && !cliArgs.useWrangler && (output.includes('Database server ready!') || output.includes('✅ Embedded PostgreSQL started'))) {
+          servicesStarted.add('database');
+        }
         if (config.useLocalFirebase && (output.includes('Auth Emulator') || output.includes('emulator started'))) {
           servicesStarted.add('firebase');
         }
@@ -351,9 +366,11 @@ async function startServices() {
         }
 
         // Check for startup completion
-        const completionCondition = config.useLocalFirebase 
-          ? (output.includes('All emulators ready!') || output.includes('✔  All emulators ready!'))
-          : (servicesStarted.has('server') && servicesStarted.has('frontend'));
+        const databaseReady = !config.useLocalDatabase || cliArgs.useWrangler || servicesStarted.has('database');
+        const firebaseReady = !config.useLocalFirebase || (output.includes('All emulators ready!') || output.includes('✔  All emulators ready!'));
+        const basicServicesReady = servicesStarted.has('server') && servicesStarted.has('frontend');
+        
+        const completionCondition = databaseReady && (config.useLocalFirebase ? firebaseReady : basicServicesReady);
           
         if (completionCondition) {
           clearTimeout(startupTimeout);

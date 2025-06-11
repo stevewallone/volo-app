@@ -147,7 +147,7 @@ export function updateServerEnvWithPorts(availablePorts, useWrangler) {
           original: originalDbLine,
           modified: newDbLine
         });
-        console.log(`📝 Updated embedded PostgreSQL port to ${availablePorts.postgres}`);
+        console.log(`📝 Updated database server port to ${availablePorts.postgres}`);
       }
     }
     

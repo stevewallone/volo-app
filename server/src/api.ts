@@ -5,7 +5,6 @@ import { logger } from 'hono/logger';
 import { authMiddleware } from './middleware/auth';
 import { getDatabase, testDatabaseConnection } from './lib/db';
 import { setEnvContext, clearEnvContext, getDatabaseUrl } from './lib/env';
-import { getEmbeddedConnectionString } from './lib/embedded-postgres';
 import * as schema from './schema/users';
 
 const app = new Hono();
@@ -52,15 +51,10 @@ api.get('/hello', (c) => {
 // Database test route - public for testing
 api.get('/db-test', async (c) => {
   try {
-    // Use external DB URL if available, otherwise use embedded postgres connection
-    const dbUrl = getDatabaseUrl() || getEmbeddedConnectionString();
-    
-    if (!dbUrl) {
-      return c.json({
-        error: 'No database connection available',
-        timestamp: new Date().toISOString(),
-      }, 500);
-    }
+    // Use external DB URL if available, otherwise use local database server
+    // Note: In development, the port is dynamically allocated by port-manager.js
+    const defaultLocalConnection = process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5502/postgres';
+    const dbUrl = getDatabaseUrl() || defaultLocalConnection;
     
     const db = await getDatabase(dbUrl);
     const isHealthy = await testDatabaseConnection();
@@ -78,7 +72,7 @@ api.get('/db-test', async (c) => {
       message: 'Database connection successful!',
       users: result,
       connectionHealthy: isHealthy,
-      usingEmbedded: !getDatabaseUrl(),
+      usingLocalDatabase: !getDatabaseUrl(),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

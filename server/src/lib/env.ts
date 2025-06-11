@@ -56,11 +56,11 @@ export function getDatabaseUrl(): string | undefined {
 }
 
 /**
- * Check if DATABASE_URL points to local embedded postgres
+ * Check if DATABASE_URL points to local database server
  */
 export function isLocalEmbeddedPostgres(): boolean {
   const dbUrl = getDatabaseUrl();
-  // Check if it's any localhost PostgreSQL connection (embedded postgres)
+  // Check if it's a localhost PostgreSQL connection (local database server)
   return dbUrl ? (dbUrl.includes('localhost:') && dbUrl.includes('postgres:password')) : false;
 }
 

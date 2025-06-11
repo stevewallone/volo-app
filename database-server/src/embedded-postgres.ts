@@ -15,14 +15,15 @@ const isDatabaseInitialized = (dataDir: string): boolean => {
   return existsSync(pgVersionFile) && existsSync(postgresqlConfFile);
 };
 
-export const startEmbeddedPostgres = async (port: number = 5433): Promise<string> => {
+export const startEmbeddedPostgres = async (port: number = 5502): Promise<string> => {
   if (embeddedInstance && connectionString) {
     return connectionString;
   }
 
   console.log('🗄️ Starting embedded PostgreSQL...');
 
-  const dataDir = path.join(__dirname, '../../../data/postgres');
+  // Use data directory relative to the database-server package
+  const dataDir = path.join(__dirname, '../../data/postgres');
   const isInitialized = isDatabaseInitialized(dataDir);
 
   embeddedInstance = new EmbeddedPostgres({
@@ -70,7 +71,7 @@ export const startEmbeddedPostgres = async (port: number = 5433): Promise<string
       console.log('   • Look for other `npm run dev` or `pnpm run dev` processes');
       console.log('   • If you stopped a previous instance abruptly, restart your terminal\n');
       
-      process.exit(1);
+      throw error;
     } else {
       console.error('❌ Failed to start embedded PostgreSQL:', error?.message || error);
       throw error;
@@ -94,4 +95,4 @@ export const stopEmbeddedPostgres = async (): Promise<void> => {
   }
 };
 
-export const getEmbeddedConnectionString = (): string | null => connectionString;
+export const getEmbeddedConnectionString = (): string | null => connectionString; 

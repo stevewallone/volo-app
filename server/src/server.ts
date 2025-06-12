@@ -28,7 +28,7 @@ const getPostgresPortFromDatabaseUrl = (): number => {
 };
 
 const startServer = async () => {
-  console.log(`🚀 Starting Node.js server on port ${port}`);
+  console.log(`🚀 Starting backend server on port ${port}`);
   
   if (!getDatabaseUrl() || isLocalEmbeddedPostgres()) {
     console.log('🔗 Using local database connection (expecting database server on dynamic port)');

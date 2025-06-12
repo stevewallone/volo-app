@@ -361,7 +361,7 @@ async function startServices() {
         if (output.includes('VITE') && output.includes('ready')) {
           servicesStarted.add('frontend');
         }
-        if (output.includes('🚀 Starting Node.js server') || output.includes('API available') || output.includes('Ready on')) {
+        if (output.includes('🚀 Starting backend server') || output.includes('API available') || output.includes('Ready on')) {
           servicesStarted.add('server');
         }
 

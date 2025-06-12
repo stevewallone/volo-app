@@ -3,7 +3,6 @@ import { drizzle as createDrizzlePostgres } from 'drizzle-orm/postgres-js';
 import { neon } from '@neondatabase/serverless';
 import postgres from 'postgres';
 import * as schema from '../schema/users';
-import { getEmbeddedConnectionString } from './embedded-postgres';
 
 type DatabaseConnection = ReturnType<typeof drizzle> | ReturnType<typeof createDrizzlePostgres>;
 
@@ -31,15 +30,17 @@ const createConnection = async (connectionString: string): Promise<DatabaseConne
 };
 
 export const getDatabase = async (connectionString?: string): Promise<DatabaseConnection> => {
-  // Use embedded PostgreSQL connection if no external connection string provided
-  const connStr = connectionString || getEmbeddedConnectionString();
+  // Use default local database connection if no external connection string provided
+  // Note: In development, the port is dynamically allocated by port-manager.js
+  const defaultLocalConnection = process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5502/postgres';
+  const connStr = connectionString || defaultLocalConnection;
 
   if (cachedConnection && cachedConnectionString === connStr) {
     return cachedConnection;
   }
 
   if (!connStr) {
-    throw new Error('No database connection available. Ensure embedded PostgreSQL is started or provide a connection string.');
+    throw new Error('No database connection available. Ensure database server is running or provide a connection string.');
   }
 
   cachedConnection = await createConnection(connStr);

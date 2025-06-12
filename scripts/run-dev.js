@@ -2,6 +2,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync, readFileSync } from 'fs';
 import {
   getAvailablePorts,
   createFirebaseConfig,
@@ -10,11 +11,37 @@ import {
   cleanupFirebaseConfig,
   checkDatabaseConfiguration,
   getDatabaseUrl,
-  readServerEnv
+  readServerEnv,
+  updateWranglerConfigWithPort,
+  restoreWranglerConfig
 } from './port-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * Auto-detects if wrangler is being used by checking server's package.json
+ * @returns {boolean} True if wrangler is detected in server dev script
+ */
+function detectWranglerUsage() {
+  try {
+    const serverPackageJsonPath = path.join(__dirname, '../server/package.json');
+    if (!existsSync(serverPackageJsonPath)) {
+      return false;
+    }
+    
+    const packageJson = JSON.parse(readFileSync(serverPackageJsonPath, 'utf-8'));
+    const devScript = packageJson.scripts?.dev;
+    
+    if (!devScript) {
+      return false;
+    }
+    
+    return devScript.includes('wrangler dev');
+  } catch (error) {
+    return false;
+  }
+}
 
 function parseCliArgs() {
   const args = process.argv.slice(2);
@@ -110,7 +137,11 @@ function showServiceInfo(availablePorts, useWrangler, config) {
   }
   
   if (config.useLocalDatabase) {
-    console.log(`   Database:  ${getDatabaseUrl(availablePorts, useWrangler)}`);
+    if (useWrangler) {
+      console.log(`   Database:  ${getDatabaseUrl(availablePorts, useWrangler)}`);
+    } else {
+      console.log(`   Database:  postgresql://postgres:***@localhost:${availablePorts.postgres}/postgres`);
+    }
   } else {
     console.log(`   Database: Production database`);
   }
@@ -132,7 +163,7 @@ function showServiceInfo(availablePorts, useWrangler, config) {
   } else {
     console.log('\n🧪 Local development mode');
     if (config.useLocalDatabase && !useWrangler) {
-      console.log('   • Using embedded PostgreSQL database');
+      console.log('   • Using local PostgreSQL database server');
     }
     if (config.useLocalFirebase) {
       console.log('   • Using Firebase Auth emulator');
@@ -154,9 +185,21 @@ async function startServices() {
 
   // Store cleanup state
   let envState = null;
+  let wranglerConfigState = null;
   let firebaseConfigPath = null;
 
   try {
+    // Auto-detect wrangler usage
+    const autoDetectedWrangler = detectWranglerUsage();
+    const useWrangler = cliArgs.useWrangler || autoDetectedWrangler;
+    
+    if (autoDetectedWrangler && !cliArgs.useWrangler) {
+      console.log('⚡ Auto-detected Cloudflare Workers mode');
+    }
+    
+    // Override CLI args with auto-detection result
+    cliArgs.useWrangler = useWrangler;
+    
     // Detect environment configuration
     const config = detectEnvironmentConfiguration();
     
@@ -173,6 +216,11 @@ async function startServices() {
       envState = updateServerEnvWithPorts(availablePorts, cliArgs.useWrangler);
     }
 
+    // Update wrangler.toml with dynamic port (only for wrangler mode)
+    if (cliArgs.useWrangler) {
+      wranglerConfigState = updateWranglerConfigWithPort(availablePorts, config.useLocalFirebase);
+    }
+
     // Create temporary firebase.json for emulator (only if using local Firebase)
     if (config.useLocalFirebase) {
       firebaseConfigPath = createFirebaseConfig(availablePorts);
@@ -180,6 +228,11 @@ async function startServices() {
 
     // Build commands based on configuration
     const commands = [];
+    
+    // Add database server if using local database (and not Wrangler mode)
+    if (config.useLocalDatabase && !cliArgs.useWrangler) {
+      commands.push(`"cd database-server && pnpm run dev -- --port ${availablePorts.postgres}"`);
+    }
     
     // Add Firebase emulator if using local Firebase
     if (config.useLocalFirebase) {
@@ -190,12 +243,10 @@ async function startServices() {
     
     // Add backend server
     if (cliArgs.useWrangler) {
-      commands.push(`"cd server && wrangler dev --port ${availablePorts.backend} --local-protocol http"`);
+      // Port is set via wrangler.toml config update, not CLI argument
+      commands.push(`"cd server && wrangler dev --local-protocol http"`);
     } else {
-      const serverCmd = config.useLocalDatabase 
-        ? `"cd server && pnpm run dev -- --port ${availablePorts.backend}"`
-        : `"cd server && pnpm run dev -- --port ${availablePorts.backend}"`;
-      commands.push(serverCmd);
+      commands.push(`"cd server && pnpm run dev -- --port ${availablePorts.backend}"`);
     }
     
     // Add frontend server
@@ -234,6 +285,12 @@ async function startServices() {
     const serviceNames = [];
     const serviceColors = [];
     
+    // Add database server if using local database (and not Wrangler mode)
+    if (config.useLocalDatabase && !cliArgs.useWrangler) {
+      serviceNames.push('database');
+      serviceColors.push('blue');
+    }
+    
     if (config.useLocalFirebase) {
       serviceNames.push('firebase');
       serviceColors.push('cyan');
@@ -244,6 +301,8 @@ async function startServices() {
     serviceColors.push('magenta');
     serviceNames.push('frontend');
     serviceColors.push('green');
+
+
 
     // Start services with clean output monitoring
     const child = spawn('npx', [
@@ -293,20 +352,25 @@ async function startServices() {
         capturedOutput += output;
         
         // Look for the key startup indicators
+        if (config.useLocalDatabase && !cliArgs.useWrangler && (output.includes('Database server ready!') || output.includes('✅ Embedded PostgreSQL started'))) {
+          servicesStarted.add('database');
+        }
         if (config.useLocalFirebase && (output.includes('Auth Emulator') || output.includes('emulator started'))) {
           servicesStarted.add('firebase');
         }
         if (output.includes('VITE') && output.includes('ready')) {
           servicesStarted.add('frontend');
         }
-        if (output.includes('🚀 Starting Node.js server') || output.includes('API available')) {
+        if (output.includes('🚀 Starting backend server') || output.includes('API available') || output.includes('Ready on')) {
           servicesStarted.add('server');
         }
 
         // Check for startup completion
-        const completionCondition = config.useLocalFirebase 
-          ? (output.includes('All emulators ready!') || output.includes('✔  All emulators ready!'))
-          : (servicesStarted.has('server') && servicesStarted.has('frontend'));
+        const databaseReady = !config.useLocalDatabase || cliArgs.useWrangler || servicesStarted.has('database');
+        const firebaseReady = !config.useLocalFirebase || (output.includes('All emulators ready!') || output.includes('✔  All emulators ready!'));
+        const basicServicesReady = servicesStarted.has('server') && servicesStarted.has('frontend');
+        
+        const completionCondition = databaseReady && (config.useLocalFirebase ? firebaseReady : basicServicesReady);
           
         if (completionCondition) {
           clearTimeout(startupTimeout);
@@ -349,6 +413,9 @@ async function startServices() {
     const cleanup = () => {
       if (envState) {
         restoreEnvFile(envState);
+      }
+      if (wranglerConfigState) {
+        restoreWranglerConfig(wranglerConfigState);
       }
       if (firebaseConfigPath) {
         cleanupFirebaseConfig(firebaseConfigPath);

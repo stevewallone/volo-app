@@ -56,7 +56,7 @@ export function getDatabaseUrl(): string | undefined {
 }
 
 /**
- * Check if DATABASE_URL points to local database server
+ * Check if DATABASE_URL points to local PostgreSQL database server
  */
 export function isLocalEmbeddedPostgres(): boolean {
   const dbUrl = getDatabaseUrl();

@@ -50,7 +50,7 @@ api.get('/hello', (c) => {
 // Database test route - public for testing
 api.get('/db-test', async (c) => {
   try {
-    // Use external DB URL if available, otherwise use local database server
+    // Use external DB URL if available, otherwise use local PostgreSQL database server
     // Note: In development, the port is dynamically allocated by port-manager.js
     const defaultLocalConnection = process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5502/postgres';
     const dbUrl = getDatabaseUrl() || defaultLocalConnection;

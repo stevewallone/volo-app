@@ -7,28 +7,27 @@ import { getDatabase, testDatabaseConnection } from './lib/db';
 import { setEnvContext, clearEnvContext, getDatabaseUrl } from './lib/env';
 import * as schema from './schema/users';
 
-const app = new Hono();
+type Env = {
+  RUNTIME?: string;
+  [key: string]: any;
+};
 
-// Check once if we're in Node.js environment
-const isNodeEnv = process?.env?.NODE_ENV != null;
+const app = new Hono<{ Bindings: Env }>();
 
-// Set environment context once based on the runtime
-if (isNodeEnv) {
-  console.log(`Setting env context from process.env - ${JSON.stringify(process.env)}`);
-  // In Node.js environment, use process.env
+// In Node.js environment, set environment context from process.env
+if (typeof process !== 'undefined' && process.env) {
   setEnvContext(process.env);
 }
 
-// Environment context middleware - only needed for Cloudflare Workers
+// Environment context middleware - detect runtime using RUNTIME env var
 app.use('*', async (c, next) => {
-  // In Cloudflare Workers, set context from c.env (only if not already set for Node.js)
-  if (!isNodeEnv) {
-    console.log(`Setting env context from c.env - ${JSON.stringify(c.env)}`);
+  if (c.env?.RUNTIME === 'cloudflare') {
     setEnvContext(c.env);
   }
   
   await next();
   // No need to clear context - env vars are the same for all requests
+  // In fact, clearing the context would cause the env vars to potentially be unset for parallel requests
 });
 
 // Middleware

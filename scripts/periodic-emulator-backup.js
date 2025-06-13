@@ -103,9 +103,13 @@ function setupShutdownHandlers() {
     process.exit(0);
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-  process.on('SIGBREAK', shutdown);
+  const signals = process.platform === 'win32' 
+    ? ['SIGINT', 'SIGTERM', 'SIGBREAK']
+    : ['SIGINT', 'SIGTERM'];
+  
+  signals.forEach(signal => {
+    process.on(signal, shutdown);
+  });
 }
 
 // Start the backup process

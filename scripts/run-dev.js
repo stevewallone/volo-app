@@ -423,7 +423,11 @@ async function startServices() {
     };
 
     // Cleanup on exit
-    ['SIGINT', 'SIGTERM', 'SIGBREAK'].forEach(signal => {
+    const signals = process.platform === 'win32' 
+      ? ['SIGINT', 'SIGTERM', 'SIGBREAK']
+      : ['SIGINT', 'SIGTERM'];
+    
+    signals.forEach(signal => {
       process.on(signal, () => {
         console.log(`\n🛑 Shutting down services...`);
         cleanup();

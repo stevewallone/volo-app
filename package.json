@@ -1,6 +1,6 @@
 {
   "name": "volo-app-template",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Full-stack React + Hono template with Firebase Auth, Neon DB, and Cloudflare deployment",
   "type": "module",
   "scripts": {

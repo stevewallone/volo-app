@@ -23,6 +23,88 @@ const projectRoot = dirname(__dirname);
 console.log('🔧 Running post-setup configuration...');
 
 /**
+ * Execute pnpm command with proper PATH resolution and npm fallback
+ * Handles Windows PATH issues with global pnpm installations
+ */
+function execPnpm(command, options = {}) {
+  const isWindows = process.platform === 'win32';
+  
+  // Build list of commands to try in order
+  const possibleCommands = [];
+  
+  if (isWindows) {
+    // On Windows, try different approaches to find pnpm
+    possibleCommands.push(
+      command, // Try direct command first
+      command.replace('pnpm', 'pnpm.cmd'), // Try .cmd extension
+      command.replace('pnpm', 'npx pnpm'), // Try via npx
+    );
+  } else {
+    // On Unix systems
+    possibleCommands.push(
+      command, // Try direct command first
+      command.replace('pnpm', 'npx pnpm'), // Try via npx
+    );
+  }
+  
+  // Add npm fallback for install commands only
+  if (command.includes('pnpm install') && !command.includes('dotenv-cli')) {
+    possibleCommands.push(command.replace('pnpm install', 'npm install'));
+  }
+  
+  let lastError;
+  for (const cmd of possibleCommands) {
+    try {
+      return execSync(cmd, {
+        ...options,
+        env: {
+          ...process.env,
+          ...options.env,
+        },
+      });
+    } catch (error) {
+      lastError = error;
+      if (cmd === possibleCommands[possibleCommands.length - 1]) {
+        // If this is the last attempt, throw the error
+        throw error;
+      }
+      // Otherwise, continue to next attempt
+      continue;
+    }
+  }
+  
+  throw lastError;
+}
+
+/**
+ * Test if pnpm is available
+ */
+async function testPnpmAvailability() {
+  try {
+    const version = execPnpm('pnpm --version', { stdio: 'pipe' });
+    console.log(`✅ pnpm ${version.toString().trim()} detected`);
+    return true;
+  } catch (error) {
+    console.log('⚠️ pnpm not found, but will try npm fallback if needed');
+    console.log('💡 To use pnpm specifically:');
+    console.log('   • Install: npm install -g pnpm');
+    console.log('   • Or visit: https://pnpm.io/installation');
+    console.log('');
+    
+    // Test if npm is available as fallback
+    try {
+      const npmVersion = execSync('npm --version', { stdio: 'pipe' });
+      console.log(`✅ npm ${npmVersion.toString().trim()} will be used as fallback`);
+      return true;
+    } catch (npmError) {
+      console.error('❌ Neither pnpm nor npm is available');
+      console.error('💡 Please install Node.js and npm first');
+      return false;
+    }
+  }
+}
+
+/**
  * Detect configuration from generated files
  */
 function detectConfiguration() {
@@ -95,7 +177,7 @@ async function setupLocalDatabase() {
       
       // Install the new dependency
       console.log('📦 Running pnpm install for embedded-postgres...');
-      execSync('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
+      execPnpm('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
       console.log('✅ Embedded-postgres installed');
     }
     
@@ -160,7 +242,7 @@ async function setupProductionDatabaseSchema(config) {
     });
     
     // Push schema with Drizzle
-    execSync('npx dotenv-cli -e .env -- pnpm db:push', {
+    execPnpm('npx dotenv-cli -e .env -- pnpm db:push', {
       cwd: join(projectRoot, 'server'),
       stdio: 'inherit'
     });
@@ -209,9 +291,15 @@ async function setupFirebaseConfig(config) {
  */
 async function runPostSetup() {
   try {
+    // Test pnpm availability first
+    const pnpmAvailable = await testPnpmAvailability();
+    if (!pnpmAvailable) {
+      process.exit(1);
+    }
+
     // Install dependencies
     console.log('📦 Installing dependencies...');
-    execSync('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
+    execPnpm('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
     console.log('✅ Dependencies installed');
 
     // Detect configuration

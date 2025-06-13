@@ -23,37 +23,46 @@ const projectRoot = dirname(__dirname);
 export async function detectLibzstdIssue() {
   if (process.platform !== 'darwin') return false;
   
+  console.log('🔍 Checking for Mac libzstd compatibility issues...');
+  
   try {
-    // Try to find the embedded postgres binary
-    const postgresPath = join(projectRoot, 'node_modules/.pnpm/@embedded-postgres+darwin-arm64@17.5.0-beta.15/node_modules/@embedded-postgres/darwin-arm64/native/bin/postgres');
+    // Try to find embedded postgres binaries using glob patterns
+    const searchPatterns = [
+      'node_modules/.pnpm/@embedded-postgres+darwin-arm64@*/node_modules/@embedded-postgres/darwin-arm64/native/bin/postgres',
+      'node_modules/.pnpm/@embedded-postgres+darwin-x64@*/node_modules/@embedded-postgres/darwin-x64/native/bin/postgres',
+      'node_modules/@embedded-postgres/darwin-arm64/native/bin/postgres',
+      'node_modules/@embedded-postgres/darwin-x64/native/bin/postgres'
+    ];
     
-    if (!existsSync(postgresPath)) {
-      console.log('🔍 Standard postgres path not found, searching dynamically...');
-      // Try to find it dynamically
-      const searchPaths = [
-        'node_modules/.pnpm/@embedded-postgres+darwin-arm64@*/node_modules/@embedded-postgres/darwin-arm64/native/bin/postgres',
-        'node_modules/.pnpm/@embedded-postgres+darwin-x64@*/node_modules/@embedded-postgres/darwin-x64/native/bin/postgres'
-      ];
-      
-      for (const searchPath of searchPaths) {
-        try {
-          const result = execSync(`find ${projectRoot} -path "*${searchPath.replace('*', '*')}" 2>/dev/null | head -1`, { encoding: 'utf8' });
-          if (result.trim()) {
-            console.log(`🔍 Found postgres binary at: ${result.trim()}`);
-            return await testPostgresBinary(result.trim());
-          }
-        } catch (e) {
-          // Continue searching
+    let foundBinary = null;
+    
+    for (const pattern of searchPatterns) {
+      console.log(`🔍 Searching for: ${pattern}`);
+      try {
+        const matches = glob.sync(pattern, { cwd: projectRoot });
+        if (matches.length > 0) {
+          foundBinary = join(projectRoot, matches[0]);
+          console.log(`✅ Found postgres binary: ${foundBinary}`);
+          break;
         }
+      } catch (globError) {
+        console.log(`⚠️ Search failed for ${pattern}: ${globError.message}`);
       }
-      console.log('⚠️ No postgres binary found, assuming no libzstd issue');
+    }
+    
+    if (!foundBinary) {
+      console.log('⚠️ No embedded postgres binary found - assuming no libzstd issue');
+      console.log('💡 If you haven\'t installed embedded-postgres yet, run: npm install embedded-postgres');
       return false;
     }
     
-    console.log(`🔍 Testing postgres binary at: ${postgresPath}`);
-    return await testPostgresBinary(postgresPath);
+    console.log(`🧪 Testing postgres binary: ${foundBinary}`);
+    return await testPostgresBinary(foundBinary);
+    
   } catch (error) {
     console.log('⚠️ Error during libzstd detection:', error.message);
+    // If we can't detect, assume there might be an issue and let the user know
+    console.log('🤔 Unable to test postgres binary - proceeding with caution');
     return false;
   }
 }
@@ -62,46 +71,54 @@ export async function detectLibzstdIssue() {
  * Test if a postgres binary fails due to libzstd issues
  */
 async function testPostgresBinary(binaryPath) {
+  if (!existsSync(binaryPath)) {
+    console.log(`❌ Binary not found: ${binaryPath}`);
+    return false;
+  }
+  
   try {
-    execSync(`"${binaryPath}" --version 2>/dev/null`, { timeout: 5000 });
-    console.log('✅ Postgres binary test passed - no libzstd issues detected');
-    return false; // Binary works fine
+    console.log('🧪 Testing postgres binary with --version...');
+    const result = execSync(`"${binaryPath}" --version`, { 
+      encoding: 'utf8',
+      timeout: 10000,
+      stdio: 'pipe'
+    });
+    
+    console.log(`✅ Postgres binary test passed: ${result.trim()}`);
+    return false; // Binary works fine, no libzstd issue
+    
   } catch (error) {
     console.log('⚠️ Postgres binary test failed, analyzing error...');
     
-    // Check for libzstd in error message
-    const errorOutput = error.stderr?.toString() || error.message || '';
-    if (errorOutput.includes('libzstd.1.dylib')) {
-      console.log('🔍 Detected libzstd.1.dylib error in output');
-      return true;
-    }
+    // Get detailed error information
+    const errorMessage = error.message || '';
+    const errorStderr = error.stderr?.toString() || '';
+    const errorStdout = error.stdout?.toString() || '';
+    const signal = error.signal;
     
-    // Check for "Abort trap: 6" which indicates dyld library loading failure
-    if (errorOutput.includes('Abort trap: 6') || error.signal === 'SIGABRT') {
-      console.log('🔍 Detected SIGABRT/Abort trap - likely libzstd issue');
-      return true;
-    }
+    console.log(`🔍 Error details:`);
+    console.log(`   Signal: ${signal}`);
+    console.log(`   Message: ${errorMessage.substring(0, 200)}`);
+    if (errorStderr) console.log(`   Stderr: ${errorStderr.substring(0, 200)}`);
+    if (errorStdout) console.log(`   Stdout: ${errorStdout.substring(0, 200)}`);
     
-    // Try again with stderr captured to see the actual dyld error
-    try {
-      execSync(`"${binaryPath}" --version`, { timeout: 5000, stdio: 'pipe' });
-      console.log('✅ Postgres binary works on second try');
+    // Check for libzstd-related issues
+    const allErrorText = `${errorMessage} ${errorStderr} ${errorStdout}`.toLowerCase();
+    
+    const hasLibzstdIssue = 
+      allErrorText.includes('libzstd.1.dylib') ||
+      allErrorText.includes('library not loaded') ||
+      signal === 'SIGABRT' ||
+      errorMessage.includes('Abort trap: 6') ||
+      allErrorText.includes('dyld') && allErrorText.includes('library');
+    
+    if (hasLibzstdIssue) {
+      console.log('✅ Confirmed: libzstd compatibility issue detected');
+      return true;
+    } else {
+      console.log('❌ Different issue detected (not libzstd related)');
+      console.log('💡 This might be a different postgres configuration issue');
       return false;
-    } catch (detailedError) {
-      const detailedOutput = detailedError.stderr?.toString() || detailedError.message || '';
-      console.log('🔍 Detailed error output:', detailedOutput.substring(0, 200) + '...');
-      
-      const hasLibzstdIssue = detailedOutput.includes('libzstd.1.dylib') || 
-                             detailedError.signal === 'SIGABRT' ||
-                             detailedOutput.includes('Library not loaded');
-      
-      if (hasLibzstdIssue) {
-        console.log('✅ Confirmed: libzstd issue detected');
-      } else {
-        console.log('❌ Different issue detected, not libzstd related');
-      }
-      
-      return hasLibzstdIssue;
     }
   }
 }
@@ -308,114 +325,77 @@ exec arch -x86_64 "${intelBinaryPath}" "$@"
  * Automatically download and install libzstd for embedded postgres
  */
 export async function downloadLibzstd() {
-  console.log('🔧 Detecting Mac architecture and setting up libzstd...');
+  console.log('🔧 Starting Mac libzstd compatibility fix...');
   
-  // Detect architecture
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
-  const isAppleSilicon = arch === 'arm64';
-  
-  console.log(`📱 Detected ${isAppleSilicon ? 'Apple Silicon (ARM64)' : 'Intel (x86_64)'} Mac`);
-  
-  // Create lib directory structure
-  const libDirs = [];
-  
-  // Find all embedded postgres installations and create lib dirs for each
   try {
-    const searchResult = execSync(`find ${projectRoot} -path "*/node_modules/@embedded-postgres/darwin-*/native/bin" -type d 2>/dev/null`, { encoding: 'utf8' });
-    const binDirs = searchResult.trim().split('\n').filter(Boolean);
+    // Detect architecture
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
+    const isAppleSilicon = arch === 'arm64';
     
-    for (const binDir of binDirs) {
-      const libDir = join(dirname(binDir), 'lib');
-      libDirs.push(libDir);
+    console.log(`📱 Detected ${isAppleSilicon ? 'Apple Silicon (ARM64)' : 'Intel (x86_64)'} Mac`);
+    
+    // Create lib directory structure
+    const libDirs = [];
+    
+    // Find all embedded postgres installations and create lib dirs for each
+    try {
+      console.log('🔍 Searching for embedded postgres installations...');
+      const searchResult = execSync(`find ${projectRoot} -path "*/node_modules/@embedded-postgres/darwin-*/native/bin" -type d 2>/dev/null`, { encoding: 'utf8' });
+      const binDirs = searchResult.trim().split('\n').filter(Boolean);
       
-      if (!existsSync(libDir)) {
-        await mkdir(libDir, { recursive: true });
-        console.log(`📁 Created lib directory: ${libDir}`);
+      console.log(`📦 Found ${binDirs.length} embedded postgres installation(s)`);
+      
+      for (const binDir of binDirs) {
+        const libDir = join(dirname(binDir), 'lib');
+        libDirs.push(libDir);
+        
+        if (!existsSync(libDir)) {
+          await mkdir(libDir, { recursive: true });
+          console.log(`📁 Created lib directory: ${libDir}`);
+        } else {
+          console.log(`📁 Using existing lib directory: ${libDir}`);
+        }
+      }
+    } catch (error) {
+      console.log('⚠️ Could not auto-detect embedded postgres paths, using fallback...');
+      // Fallback: create standard paths
+      const standardPaths = [
+        join(projectRoot, 'node_modules/.pnpm/@embedded-postgres+darwin-arm64@17.5.0-beta.15/node_modules/@embedded-postgres/darwin-arm64/native/lib'),
+        join(projectRoot, 'node_modules/.pnpm/@embedded-postgres+darwin-x64@17.5.0-beta.15/node_modules/@embedded-postgres/darwin-x64/native/lib')
+      ];
+      
+      for (const libPath of standardPaths) {
+        try {
+          await mkdir(libPath, { recursive: true });
+          libDirs.push(libPath);
+          console.log(`📁 Created fallback lib directory: ${libPath}`);
+        } catch (e) {
+          // Directory may not exist, that's ok
+        }
       }
     }
-  } catch (error) {
-    console.log('⚠️ Could not auto-detect embedded postgres paths, using fallback...');
-    // Fallback: create standard paths
-    const standardPaths = [
-      join(projectRoot, 'node_modules/.pnpm/@embedded-postgres+darwin-arm64@17.5.0-beta.15/node_modules/@embedded-postgres/darwin-arm64/native/lib'),
-      join(projectRoot, 'node_modules/.pnpm/@embedded-postgres+darwin-x64@17.5.0-beta.15/node_modules/@embedded-postgres/darwin-x64/native/lib')
+    
+    if (libDirs.length === 0) {
+      throw new Error('Could not find or create lib directories for embedded postgres. Make sure embedded-postgres is installed.');
+    }
+    
+    console.log(`🎯 Target directories: ${libDirs.length} lib folder(s)`);
+    
+    const libzstdFilename = 'libzstd.1.dylib';
+    
+    // Strategy 1: Try to find libzstd locally first (if user has Homebrew already installed)
+    console.log('🔍 Strategy 1: Checking for existing libzstd installation...');
+    const localPaths = [
+      '/opt/homebrew/lib/libzstd.1.dylib',     // Apple Silicon Homebrew
+      '/usr/local/lib/libzstd.1.dylib',        // Intel Homebrew
+      '/opt/homebrew/Cellar/zstd/*/lib/libzstd.1.dylib', // Versioned path
+      '/usr/local/Cellar/zstd/*/lib/libzstd.1.dylib'     // Versioned path
     ];
     
-    for (const libPath of standardPaths) {
-      try {
-        await mkdir(libPath, { recursive: true });
-        libDirs.push(libPath);
-      } catch (e) {
-        // Directory may not exist, that's ok
-      }
-    }
-  }
-  
-  if (libDirs.length === 0) {
-    throw new Error('Could not find or create lib directories for embedded postgres');
-  }
-  
-  const libzstdFilename = 'libzstd.1.dylib';
-  
-  // Strategy 1: Try to find libzstd locally first (if user has Homebrew already installed)
-  console.log('🔍 Step 1: Checking for existing libzstd installation...');
-  const localPaths = [
-    '/opt/homebrew/lib/libzstd.1.dylib',     // Apple Silicon Homebrew
-    '/usr/local/lib/libzstd.1.dylib',        // Intel Homebrew
-    '/opt/homebrew/Cellar/zstd/*/lib/libzstd.1.dylib', // Versioned path
-    '/usr/local/Cellar/zstd/*/lib/libzstd.1.dylib'     // Versioned path
-  ];
-  
-  let sourcePath = null;
-  for (const path of localPaths) {
-    if (path.includes('*')) {
-      // Handle glob patterns
-      try {
-        const result = execSync(`ls ${path} 2>/dev/null | head -1`, { encoding: 'utf8' });
-        if (result.trim()) {
-          sourcePath = result.trim();
-          break;
-        }
-      } catch (e) {
-        continue;
-      }
-    } else if (existsSync(path)) {
-      sourcePath = path;
-      break;
-    }
-  }
-  
-  if (sourcePath) {
-    console.log(`📦 Found local libzstd at: ${sourcePath}`);
-    
-    // Copy to all lib directories
-    for (const libDir of libDirs) {
-      const targetPath = join(libDir, libzstdFilename);
-      try {
-        // Use cp command to preserve permissions and links
-        execSync(`cp "${sourcePath}" "${targetPath}"`);
-        console.log(`✅ Copied libzstd to: ${targetPath}`);
-      } catch (error) {
-        console.log(`⚠️ Failed to copy to ${targetPath}: ${error.message}`);
-      }
-    }
-    
-    return true;
-  }
-  
-  // Strategy 2: Try automated Homebrew install (if available)
-  console.log('🔍 Step 2: Attempting automated Homebrew installation...');
-  try {
-    // Check if Homebrew is installed
-    execSync('which brew', { stdio: 'pipe' });
-    
-    // Try to install zstd
-    console.log('🍺 Installing zstd via existing Homebrew...');
-    execSync('brew install zstd', { stdio: 'pipe' });
-    
-    // Try to find it again
+    let sourcePath = null;
     for (const path of localPaths) {
       if (path.includes('*')) {
+        // Handle glob patterns
         try {
           const result = execSync(`ls ${path} 2>/dev/null | head -1`, { encoding: 'utf8' });
           if (result.trim()) {
@@ -432,96 +412,134 @@ export async function downloadLibzstd() {
     }
     
     if (sourcePath) {
+      console.log(`✅ Found local libzstd at: ${sourcePath}`);
+      
+      // Copy to all lib directories
+      let copySuccess = false;
       for (const libDir of libDirs) {
         const targetPath = join(libDir, libzstdFilename);
         try {
+          // Use cp command to preserve permissions and links
           execSync(`cp "${sourcePath}" "${targetPath}"`);
           console.log(`✅ Copied libzstd to: ${targetPath}`);
+          copySuccess = true;
         } catch (error) {
           console.log(`⚠️ Failed to copy to ${targetPath}: ${error.message}`);
         }
       }
+      
+      if (copySuccess) {
+        console.log('🎉 Strategy 1 successful - using existing libzstd');
+        return true;
+      }
+    }
+    
+    // Strategy 2: Try automated Homebrew install (if available)
+    console.log('🔍 Strategy 2: Attempting automated Homebrew installation...');
+    try {
+      // Check if Homebrew is installed
+      execSync('which brew', { stdio: 'pipe' });
+      
+      // Try to install zstd
+      console.log('🍺 Installing zstd via existing Homebrew...');
+      execSync('brew install zstd', { stdio: 'pipe' });
+      
+      // Try to find it again
+      for (const path of localPaths) {
+        if (path.includes('*')) {
+          try {
+            const result = execSync(`ls ${path} 2>/dev/null | head -1`, { encoding: 'utf8' });
+            if (result.trim()) {
+              sourcePath = result.trim();
+              break;
+            }
+          } catch (e) {
+            continue;
+          }
+        } else if (existsSync(path)) {
+          sourcePath = path;
+          break;
+        }
+      }
+      
+      if (sourcePath) {
+        let copySuccess = false;
+        for (const libDir of libDirs) {
+          const targetPath = join(libDir, libzstdFilename);
+          try {
+            execSync(`cp "${sourcePath}" "${targetPath}"`);
+            console.log(`✅ Copied libzstd to: ${targetPath}`);
+            copySuccess = true;
+          } catch (error) {
+            console.log(`⚠️ Failed to copy to ${targetPath}: ${error.message}`);
+          }
+        }
+        
+        if (copySuccess) {
+          console.log('🎉 Strategy 2 successful - installed via Homebrew');
+          return true;
+        }
+      }
+    } catch (error) {
+      console.log('⚠️ Homebrew not available or installation failed');
+    }
+    
+    // Strategy 3: Download from alternative sources
+    console.log('🔍 Strategy 3: Attempting direct download...');
+    const downloadSuccess = await downloadLibzstdFromBottle(arch, libDirs);
+    if (downloadSuccess) {
+      console.log('🎉 Strategy 3 successful - downloaded and built libzstd');
       return true;
     }
-  } catch (error) {
-    console.log('⚠️ Homebrew not available or installation failed');
-  }
-  
-  // Strategy 3: Download from bottle (without requiring Homebrew installation)
-  console.log('🔍 Step 3: Attempting direct download...');
-  const downloadSuccess = await downloadLibzstdFromBottle(arch, libDirs);
-  if (downloadSuccess) {
-    return true;
-  }
-  
-  // Strategy 4: Rosetta fallback (Apple Silicon only)
-  if (arch === 'arm64') {
-    console.log('🔄 Strategy 4: Testing Rosetta 2 fallback...');
     
-    const rosettaResult = await testAndSetupRosetta();
-    
-    switch (rosettaResult) {
-      case 'rosetta-ready':
-        console.log('✅ Rosetta fallback configured successfully');
-        
-        // Set environment variable to use the wrapper
-        process.env.EMBEDDED_POSTGRES_BINARY_PATH = join(projectRoot, 'scripts', 'postgres-intel-wrapper.sh');
-        
-        // Test it one more time to be sure
-        try {
-          await testPostgresBinary();
-          console.log('✅ Rosetta postgres test passed!');
+    // Strategy 4: Rosetta fallback (Apple Silicon only)
+    if (arch === 'arm64') {
+      console.log('🔍 Strategy 4: Testing Rosetta 2 fallback...');
+      
+      const rosettaResult = await testAndSetupRosetta();
+      
+      switch (rosettaResult) {
+        case 'rosetta-ready':
+          console.log('✅ Rosetta fallback configured successfully');
+          
+          // Set environment variable to use the wrapper
+          process.env.EMBEDDED_POSTGRES_BINARY_PATH = join(projectRoot, 'scripts', 'postgres-intel-wrapper.sh');
+          
+          console.log('🎉 Strategy 4 successful - using Rosetta fallback');
           return 'rosetta-fallback';
-        } catch (testError) {
-          console.log('⚠️ Rosetta postgres still failing, continuing to manual guidance...');
-        }
-        break;
-        
-      case 'need-intel-binary':
-        console.log('📦 Intel binary not found. You can install it with:');
-        console.log('   npm install @embedded-postgres/darwin-x64');
-        console.log('   Then re-run the setup');
-        break;
-        
-      case 'intel-binary-broken':
-        console.log('⚠️ Intel binary also has dependency issues');
-        break;
-        
-      case 'rosetta-test-failed':
-        console.log('⚠️ Rosetta test failed for unknown reasons');
-        break;
-        
-      case 'rosetta-unavailable':
-        console.log('⚠️ Rosetta 2 is not available or not installed');
-        console.log('💡 Install with: softwareupdate --install-rosetta');
-        break;
+          
+        case 'need-intel-binary':
+          console.log('📦 Intel binary not found. You can install it with:');
+          console.log('   npm install @embedded-postgres/darwin-x64');
+          console.log('   Then re-run the setup');
+          break;
+          
+        case 'intel-binary-broken':
+          console.log('⚠️ Intel binary also has dependency issues');
+          break;
+          
+        case 'rosetta-test-failed':
+          console.log('⚠️ Rosetta test failed for unknown reasons');
+          break;
+          
+        case 'rosetta-unavailable':
+          console.log('⚠️ Rosetta 2 is not available or not installed');
+          console.log('💡 Install with: softwareupdate --install-rosetta');
+          break;
+      }
     }
+    
+    // All strategies failed
+    console.log('❌ All automatic fix strategies failed');
+    return false;
+    
+  } catch (error) {
+    console.log(`❌ Error during libzstd fix: ${error.message}`);
+    return false;
+  } finally {
+    // Always cleanup temp directory
+    await cleanupTempDir();
   }
-  
-  // Strategy 5: User guidance for manual installation
-  console.log('');
-  console.log('🔧 Automatic setup failed - choose one of these options:');
-  console.log('');
-  console.log('Option A - Install missing dependency (quick):');
-  console.log('1. Install Homebrew:');
-  console.log('   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
-  console.log('2. Install zstd: brew install zstd');
-  console.log('3. Retry: pnpm post-setup');
-  console.log('');
-  
-  if (isAppleSilicon) {
-    console.log('Option B - Install Rosetta (Apple Silicon):');
-    console.log('1. Install Rosetta: softwareupdate --install-rosetta');
-    console.log('2. Retry: pnpm post-setup');
-    console.log('   (Will use Intel binary with emulation)');
-    console.log('');
-  }
-  
-  console.log('Option C - Use cloud database instead (recommended):');
-  console.log('   npx create-volo-app@dev your-app --database');
-  console.log('   (Choose Neon or Supabase for hassle-free setup)');
-  
-  return false;
 }
 
 /**
@@ -563,5 +581,18 @@ export function provideMacTroubleshootingGuidance(error, dataDir) {
     console.log('  3. Check available disk space and permissions in:');
     console.log(`     ${dataDir}`);
     console.log('  4. Try restarting the terminal and running again');
+  }
+}
+
+// Cleanup temp directory helper
+async function cleanupTempDir() {
+  try {
+    const tempDir = join(projectRoot, '.temp-libzstd');
+    if (existsSync(tempDir)) {
+      execSync(`rm -rf "${tempDir}"`);
+      console.log('🧹 Cleaned up temporary directory');
+    }
+  } catch (e) {
+    console.log('⚠️ Failed to cleanup temp directory (this is usually fine)');
   }
 } 

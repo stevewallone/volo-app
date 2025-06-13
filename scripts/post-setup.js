@@ -121,7 +121,8 @@ async function setupLocalDatabase() {
     console.log('   • Then run create-volo-app again with "Other PostgreSQL" option');
     console.log('');
     
-    process.exit(1);
+    // Re-throw the error so the outer catch can handle the exit properly
+    throw new Error('Database setup failed');
   }
 }
 
@@ -268,6 +269,13 @@ async function runPostSetup() {
     }
 
   } catch (error) {
+    // If it's a database setup failure, we already showed the detailed error message
+    if (error.message === 'Database setup failed') {
+      // Exit without showing additional confusing messages
+      process.exit(1);
+    }
+    
+    // For other errors, show the generic error message
     console.error('❌ Post-setup failed:', error.message);
     console.log('');
     console.log('💡 You can complete setup manually:');

@@ -83,7 +83,9 @@ export async function setupEmbeddedPostgres() {
       password: 'password',
       port: postgresPort,
       persistent: true,
-      initdbFlags: ['--encoding=UTF8', '--lc-collate=C', '--lc-ctype=C']
+      initdbFlags: process.platform === 'darwin' 
+        ? ['--encoding=UTF8', '--lc-collate=en_US.UTF-8', '--lc-ctype=en_US.UTF-8']
+        : ['--encoding=UTF8', '--lc-collate=C', '--lc-ctype=C']
     });
 
     await embeddedPg.initialise();

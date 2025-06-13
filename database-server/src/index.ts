@@ -41,9 +41,13 @@ const shutdown = async (signal: string) => {
 };
 
 // Handle shutdown signals
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGBREAK', () => shutdown('SIGBREAK'));
+const signals = process.platform === 'win32' 
+  ? ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const
+  : ['SIGINT', 'SIGTERM'] as const;
+
+signals.forEach(signal => {
+  process.on(signal, () => shutdown(signal));
+});
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {

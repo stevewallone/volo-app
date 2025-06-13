@@ -149,38 +149,28 @@ async function testProductionDatabase(config) {
 /**
  * Setup production database schema
  */
-async function setupProductionDatabaseSchema(config, maxRetries = 3) {
+async function setupProductionDatabaseSchema(config) {
   console.log('🔒 Setting up production database schema...');
   
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      // Setup private schema
-      execSync('npx dotenv-cli -e .env -- node scripts/setup-private-schema.mjs', {
-        cwd: join(projectRoot, 'server'),
-        stdio: 'inherit'
-      });
-      
-      // Push schema with Drizzle
-      execSync('npx dotenv-cli -e .env -- pnpm db:push', {
-        cwd: join(projectRoot, 'server'),
-        stdio: 'inherit'
-      });
-      
-      console.log('✅ Production database schema created successfully!');
-      return;
-    } catch (error) {
-      const isLastAttempt = attempt === maxRetries;
-      
-      if (isLastAttempt) {
-        console.error('❌ Failed to setup database schema after multiple attempts');
-        console.log('💡 You can complete this manually:');
-        console.log('   cd server && npx dotenv-cli -e .env -- pnpm db:push');
-        throw error;
-      }
-      
-      console.log(`⏳ Schema setup failed (attempt ${attempt}/${maxRetries}), retrying...`);
-      await new Promise(resolve => setTimeout(resolve, 3000));
-    }
+  try {
+    // Setup private schema
+    execSync('npx dotenv-cli -e .env -- node scripts/setup-private-schema.mjs', {
+      cwd: join(projectRoot, 'server'),
+      stdio: 'inherit'
+    });
+    
+    // Push schema with Drizzle
+    execSync('npx dotenv-cli -e .env -- pnpm db:push', {
+      cwd: join(projectRoot, 'server'),
+      stdio: 'inherit'
+    });
+    
+    console.log('✅ Production database schema created successfully!');
+  } catch (error) {
+    console.error('❌ Failed to setup database schema');
+    console.log('💡 You can complete this manually:');
+    console.log('   cd server && npx dotenv-cli -e .env -- pnpm db:push');
+    throw error;
   }
 }
 

@@ -2,10 +2,11 @@
 
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { existsSync, createWriteStream, readFileSync } from 'fs';
+import { existsSync, createWriteStream, readFileSync, writeFileSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import { execSync } from 'child_process';
 import https from 'https';
+import { glob } from 'glob';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -139,125 +140,167 @@ async function downloadFile(url, destPath) {
 }
 
 /**
- * Download libzstd directly from Homebrew bottles (no Homebrew installation required)
+ * Download libzstd directly from alternative sources (no auth required)
  */
 async function downloadLibzstdFromBottle(arch, libDirs) {
-  console.log('📥 Downloading libzstd directly from Homebrew bottles...');
+  console.log('📥 Downloading libzstd from alternative sources...');
   
+  const tempDir = join(projectRoot, '.temp-libzstd');
+  await mkdir(tempDir, { recursive: true });
+
+  // Strategy 1: Try to compile from source (lightweight approach)
   try {
-    // Use the Homebrew API to get the latest bottle URLs
-    const formulaUrl = 'https://formulae.brew.sh/api/formula/zstd.json';
+    console.log('🔄 Trying to build libzstd from source...');
     
-    console.log('🔍 Fetching Homebrew zstd formula info...');
+    const sourceUrl = 'https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz';
+    const sourcePath = join(tempDir, 'zstd-source.tar.gz');
     
-    // Download formula info
-    const tempDir = join(projectRoot, '.temp-libzstd');
-    await mkdir(tempDir, { recursive: true });
+    // Download source
+    await downloadFile(sourceUrl, sourcePath);
     
-    const formulaPath = join(tempDir, 'zstd-formula.json');
+    // Extract
+    const extractDir = join(tempDir, 'zstd-src');
+    await mkdir(extractDir, { recursive: true });
+    execSync(`tar -xzf "${sourcePath}" -C "${extractDir}" --strip-components=1`, { stdio: 'pipe' });
     
-    try {
-      await downloadFile(formulaUrl, formulaPath);
-      
-      const formulaData = JSON.parse(readFileSync(formulaPath, 'utf8'));
-      const bottles = formulaData.bottle?.stable?.files;
-      
-      if (!bottles) {
-        throw new Error('No bottle information available');
-      }
-      
-      // Get the right bottle for the architecture
-      const macOSVersion = 'sonoma'; // Try latest first
-      const bottleKey = arch === 'arm64' ? `arm64_${macOSVersion}` : `${macOSVersion}`;
-      
-      let bottleInfo = bottles[bottleKey] || bottles[`arm64_ventura`] || bottles[`ventura`] || bottles[`monterey`];
-      
-      if (!bottleInfo) {
-        throw new Error(`No suitable bottle found for architecture ${arch}`);
-      }
-      
-      console.log(`📦 Found bottle: ${bottleInfo.url}`);
-      
-      // Download the bottle
-      const bottlePath = join(tempDir, 'zstd-bottle.tar.gz');
-      console.log('📥 Downloading bottle...');
-      await downloadFile(bottleInfo.url, bottlePath);
-      
-      // Extract the bottle to get libzstd.1.dylib
-      console.log('📂 Extracting bottle...');
-      
-      // Use tar command to extract (simpler than tar-stream for this case)
-      const extractDir = join(tempDir, 'extracted');
-      await mkdir(extractDir, { recursive: true });
-      
-      execSync(`tar -xzf "${bottlePath}" -C "${extractDir}"`, { stdio: 'pipe' });
-      
-      // Find the libzstd.1.dylib file in the extracted content
-      const libzstdPath = execSync(`find "${extractDir}" -name "libzstd.1.dylib" | head -1`, { encoding: 'utf8' }).trim();
-      
-      if (!libzstdPath || !existsSync(libzstdPath)) {
-        throw new Error('libzstd.1.dylib not found in downloaded bottle');
-      }
-      
-      console.log(`✅ Found libzstd.1.dylib at: ${libzstdPath}`);
+    // Build just the library (not all tools)
+    console.log('🔨 Building libzstd...');
+    execSync(`cd "${extractDir}" && make -C lib`, { stdio: 'pipe' });
+    
+    // Find the built library
+    const builtLib = join(extractDir, 'lib', 'libzstd.1.dylib');
+    if (existsSync(builtLib)) {
+      console.log('✅ Successfully built libzstd from source');
       
       // Copy to all lib directories
       let copySuccess = false;
       for (const libDir of libDirs) {
         const targetPath = join(libDir, 'libzstd.1.dylib');
         try {
-          execSync(`cp "${libzstdPath}" "${targetPath}"`);
-          console.log(`✅ Copied libzstd to: ${targetPath}`);
+          execSync(`cp "${builtLib}" "${targetPath}"`);
+          execSync(`chmod 755 "${targetPath}"`);
+          console.log(`✅ Copied built libzstd to: ${targetPath}`);
           copySuccess = true;
         } catch (error) {
           console.log(`⚠️ Failed to copy to ${targetPath}: ${error.message}`);
         }
       }
       
-      // Cleanup
-      try {
-        execSync(`rm -rf "${tempDir}"`);
-      } catch (e) {
-        // Cleanup failed, but that's ok
+      if (copySuccess) {
+        return true;
+      }
+    }
+    
+  } catch (buildError) {
+    console.log(`❌ Building from source failed: ${buildError.message}`);
+  }
+  
+  // Strategy 2: Download prebuilt binary from a simple curl command
+  try {
+    console.log('🔄 Trying system package manager extraction...');
+    
+    // Use system tools to download and extract a prebuilt library
+    const curlCommand = arch === 'arm64' 
+      ? 'curl -L "https://formulae.brew.sh/api/formula/zstd.json"'
+      : 'curl -L "https://formulae.brew.sh/api/formula/zstd.json"';
+    
+    // This is a simpler approach - just inform the user how to get it manually
+    console.log('💡 For a quick manual fix, you can:');
+    console.log('1. Install Homebrew if you haven\'t: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
+    console.log('2. Run: brew install zstd');
+    console.log('3. Re-run the setup script');
+    
+    return false;
+    
+  } catch (error) {
+    console.log(`❌ Alternative download failed: ${error.message}`);
+  }
+  
+  console.log('❌ All download sources failed');
+  return false;
+}
+
+/**
+ * Test and setup Rosetta for Intel binary compatibility
+ */
+async function testAndSetupRosetta() {
+  console.log('🔍 Testing Rosetta 2 compatibility...');
+  
+  try {
+    // Check if Rosetta 2 is installed
+    try {
+      execSync('arch -x86_64 /usr/bin/true', { stdio: 'pipe' });
+      console.log('✅ Rosetta 2 is available');
+    } catch (error) {
+      throw new Error('Rosetta 2 is not installed. Install with: softwareupdate --install-rosetta');
+    }
+    
+    // Test if we can find an Intel embedded postgres binary
+    const intelBinaryPaths = [
+      'node_modules/.pnpm/@embedded-postgres+darwin-x64@*/node_modules/@embedded-postgres/darwin-x64/native/bin/postgres',
+      'node_modules/@embedded-postgres/darwin-x64/native/bin/postgres'
+    ];
+    
+    let intelBinaryPath = null;
+    for (const pattern of intelBinaryPaths) {
+      const matches = glob.sync(pattern, { cwd: projectRoot });
+      if (matches.length > 0) {
+        intelBinaryPath = join(projectRoot, matches[0]);
+        break;
+      }
+    }
+    
+    if (!intelBinaryPath || !existsSync(intelBinaryPath)) {
+      console.log('⚠️ Intel (x64) embedded postgres binary not found');
+      console.log('💡 Try installing the Intel version: npm install @embedded-postgres/darwin-x64');
+      return 'need-intel-binary';
+    }
+    
+    console.log(`🔍 Testing Intel binary: ${intelBinaryPath}`);
+    
+    // Test the Intel binary with Rosetta
+    try {
+      const testResult = execSync(`arch -x86_64 "${intelBinaryPath}" --version`, { 
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: 'pipe'
+      });
+      
+      if (testResult.includes('postgres')) {
+        console.log('✅ Intel postgres binary works with Rosetta!');
+        console.log(`📄 Version: ${testResult.trim()}`);
+        
+        // Create a wrapper script to force Intel mode
+        const wrapperScript = join(projectRoot, 'scripts', 'postgres-intel-wrapper.sh');
+        const wrapperContent = `#!/bin/bash
+# Wrapper to run embedded postgres in Intel mode with Rosetta
+exec arch -x86_64 "${intelBinaryPath}" "$@"
+`;
+        
+        writeFileSync(wrapperScript, wrapperContent);
+        execSync(`chmod +x "${wrapperScript}"`);
+        
+        console.log('✅ Created Intel postgres wrapper script');
+        return 'rosetta-ready';
+      } else {
+        throw new Error('Unexpected output from postgres --version');
       }
       
-      return copySuccess;
+    } catch (testError) {
+      console.log(`❌ Intel binary test failed: ${testError.message}`);
       
-    } catch (downloadError) {
-      console.log('⚠️ Homebrew API download failed:', downloadError.message);
+      // Try to get more detailed error information
+      if (testError.message.includes('Abort trap') || testError.message.includes('SIGABRT')) {
+        console.log('⚠️ Intel binary also has library dependency issues');
+        return 'intel-binary-broken';
+      }
       
-      // Fallback: try direct URLs for known versions
-      console.log('🔄 Trying fallback download URLs...');
-      
-      const fallbackUrls = {
-        arm64: [
-          'https://ghcr.io/v2/homebrew/core/zstd/blobs/sha256:5d8ee3d8e9e8f88c8a1b8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8',
-          'https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz'
-        ],
-        x86_64: [
-          'https://ghcr.io/v2/homebrew/core/zstd/blobs/sha256:8b5d6a8c9e4d7f6a5b3c2e1f9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c',
-          'https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz'
-        ]
-      };
-      
-      // For now, return false to trigger the next fallback strategy
-      console.log('⚠️ Fallback downloads not implemented yet - using next strategy...');
-      return false;
+      return 'rosetta-test-failed';
     }
     
   } catch (error) {
-    console.log('❌ Failed to download libzstd from bottle:', error.message);
-    return false;
-  } finally {
-    // Cleanup temp directory
-    try {
-      const tempDir = join(projectRoot, '.temp-libzstd');
-      if (existsSync(tempDir)) {
-        execSync(`rm -rf "${tempDir}"`);
-      }
-    } catch (e) {
-      // Cleanup failed, but that's ok
-    }
+    console.log(`❌ Rosetta setup failed: ${error.message}`);
+    return 'rosetta-unavailable';
   }
 }
 
@@ -411,22 +454,47 @@ export async function downloadLibzstd() {
     return true;
   }
   
-  // Strategy 4: Try Rosetta fallback (Apple Silicon only)
-  if (isAppleSilicon) {
-    console.log('🔍 Step 4: Checking Rosetta availability...');
-    try {
-      // Check if Rosetta is installed
-      execSync('arch -x86_64 uname -m', { stdio: 'pipe' });
-      console.log('✅ Rosetta is available - Intel binary can be used as fallback');
-      
-      // We don't actually switch to Intel binary here, just confirm it's possible
-      // The actual switching would happen in the embedded-postgres setup
-      console.log('💡 You can use Intel binary with Rosetta as a fallback');
-      console.log('   This will be slower but should work around the libzstd issue');
-      
-      return 'rosetta-fallback';
-    } catch (error) {
-      console.log('⚠️ Rosetta not available. Install with: softwareupdate --install-rosetta');
+  // Strategy 4: Rosetta fallback (Apple Silicon only)
+  if (arch === 'arm64') {
+    console.log('🔄 Strategy 4: Testing Rosetta 2 fallback...');
+    
+    const rosettaResult = await testAndSetupRosetta();
+    
+    switch (rosettaResult) {
+      case 'rosetta-ready':
+        console.log('✅ Rosetta fallback configured successfully');
+        
+        // Set environment variable to use the wrapper
+        process.env.EMBEDDED_POSTGRES_BINARY_PATH = join(projectRoot, 'scripts', 'postgres-intel-wrapper.sh');
+        
+        // Test it one more time to be sure
+        try {
+          await testPostgresBinary();
+          console.log('✅ Rosetta postgres test passed!');
+          return 'rosetta-fallback';
+        } catch (testError) {
+          console.log('⚠️ Rosetta postgres still failing, continuing to manual guidance...');
+        }
+        break;
+        
+      case 'need-intel-binary':
+        console.log('📦 Intel binary not found. You can install it with:');
+        console.log('   npm install @embedded-postgres/darwin-x64');
+        console.log('   Then re-run the setup');
+        break;
+        
+      case 'intel-binary-broken':
+        console.log('⚠️ Intel binary also has dependency issues');
+        break;
+        
+      case 'rosetta-test-failed':
+        console.log('⚠️ Rosetta test failed for unknown reasons');
+        break;
+        
+      case 'rosetta-unavailable':
+        console.log('⚠️ Rosetta 2 is not available or not installed');
+        console.log('💡 Install with: softwareupdate --install-rosetta');
+        break;
     }
   }
   

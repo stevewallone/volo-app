@@ -109,13 +109,12 @@ async function setupLocalDatabase() {
     console.log('❌ Local database setup failed');
     console.log('');
     console.log('The embedded PostgreSQL database could not be started on your system.');
-    console.log('This commonly happens on Apple Silicon Macs or systems with restricted permissions.');
     console.log('');
     console.log('Next steps:');
     console.log('');
     console.log('1. Use a cloud database instead:');
-    console.log('   • Run create-volo-app again and select "Other PostgreSQL" option');
-    console.log('   • Choose a cloud provider like Neon, Supabase, or Railway');
+    console.log('   • Run create-volo-app again with the --database flag');
+    console.log('   • Choose a cloud provider like Neon or Supabase');
     console.log('');
     console.log('2. Or install PostgreSQL locally:');
     console.log('   • macOS: brew install postgresql@15 && brew services start postgresql@15');

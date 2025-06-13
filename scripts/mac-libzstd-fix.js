@@ -26,6 +26,7 @@ export async function detectLibzstdIssue() {
     const postgresPath = join(projectRoot, 'node_modules/.pnpm/@embedded-postgres+darwin-arm64@17.5.0-beta.15/node_modules/@embedded-postgres/darwin-arm64/native/bin/postgres');
     
     if (!existsSync(postgresPath)) {
+      console.log('🔍 Standard postgres path not found, searching dynamically...');
       // Try to find it dynamically
       const searchPaths = [
         'node_modules/.pnpm/@embedded-postgres+darwin-arm64@*/node_modules/@embedded-postgres/darwin-arm64/native/bin/postgres',
@@ -36,17 +37,21 @@ export async function detectLibzstdIssue() {
         try {
           const result = execSync(`find ${projectRoot} -path "*${searchPath.replace('*', '*')}" 2>/dev/null | head -1`, { encoding: 'utf8' });
           if (result.trim()) {
+            console.log(`🔍 Found postgres binary at: ${result.trim()}`);
             return await testPostgresBinary(result.trim());
           }
         } catch (e) {
           // Continue searching
         }
       }
+      console.log('⚠️ No postgres binary found, assuming no libzstd issue');
       return false;
     }
     
+    console.log(`🔍 Testing postgres binary at: ${postgresPath}`);
     return await testPostgresBinary(postgresPath);
   } catch (error) {
+    console.log('⚠️ Error during libzstd detection:', error.message);
     return false;
   }
 }
@@ -57,10 +62,45 @@ export async function detectLibzstdIssue() {
 async function testPostgresBinary(binaryPath) {
   try {
     execSync(`"${binaryPath}" --version 2>/dev/null`, { timeout: 5000 });
+    console.log('✅ Postgres binary test passed - no libzstd issues detected');
     return false; // Binary works fine
   } catch (error) {
+    console.log('⚠️ Postgres binary test failed, analyzing error...');
+    
+    // Check for libzstd in error message
     const errorOutput = error.stderr?.toString() || error.message || '';
-    return errorOutput.includes('libzstd.1.dylib');
+    if (errorOutput.includes('libzstd.1.dylib')) {
+      console.log('🔍 Detected libzstd.1.dylib error in output');
+      return true;
+    }
+    
+    // Check for "Abort trap: 6" which indicates dyld library loading failure
+    if (errorOutput.includes('Abort trap: 6') || error.signal === 'SIGABRT') {
+      console.log('🔍 Detected SIGABRT/Abort trap - likely libzstd issue');
+      return true;
+    }
+    
+    // Try again with stderr captured to see the actual dyld error
+    try {
+      execSync(`"${binaryPath}" --version`, { timeout: 5000, stdio: 'pipe' });
+      console.log('✅ Postgres binary works on second try');
+      return false;
+    } catch (detailedError) {
+      const detailedOutput = detailedError.stderr?.toString() || detailedError.message || '';
+      console.log('🔍 Detailed error output:', detailedOutput.substring(0, 200) + '...');
+      
+      const hasLibzstdIssue = detailedOutput.includes('libzstd.1.dylib') || 
+                             detailedError.signal === 'SIGABRT' ||
+                             detailedOutput.includes('Library not loaded');
+      
+      if (hasLibzstdIssue) {
+        console.log('✅ Confirmed: libzstd issue detected');
+      } else {
+        console.log('❌ Different issue detected, not libzstd related');
+      }
+      
+      return hasLibzstdIssue;
+    }
   }
 }
 

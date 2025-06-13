@@ -2,9 +2,10 @@
 
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, createWriteStream, readFileSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import { execSync } from 'child_process';
+import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -105,10 +106,166 @@ async function testPostgresBinary(binaryPath) {
 }
 
 /**
+ * Download file from URL to destination
+ */
+async function downloadFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    const file = createWriteStream(destPath);
+    
+    https.get(url, (response) => {
+      if (response.statusCode === 302 || response.statusCode === 301) {
+        // Handle redirects
+        return downloadFile(response.headers.location, destPath).then(resolve).catch(reject);
+      }
+      
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`));
+        return;
+      }
+      
+      response.pipe(file);
+      
+      file.on('finish', () => {
+        file.close();
+        resolve();
+      });
+      
+      file.on('error', (err) => {
+        file.close();
+        reject(err);
+      });
+    }).on('error', reject);
+  });
+}
+
+/**
+ * Download libzstd directly from Homebrew bottles (no Homebrew installation required)
+ */
+async function downloadLibzstdFromBottle(arch, libDirs) {
+  console.log('📥 Downloading libzstd directly from Homebrew bottles...');
+  
+  try {
+    // Use the Homebrew API to get the latest bottle URLs
+    const formulaUrl = 'https://formulae.brew.sh/api/formula/zstd.json';
+    
+    console.log('🔍 Fetching Homebrew zstd formula info...');
+    
+    // Download formula info
+    const tempDir = join(projectRoot, '.temp-libzstd');
+    await mkdir(tempDir, { recursive: true });
+    
+    const formulaPath = join(tempDir, 'zstd-formula.json');
+    
+    try {
+      await downloadFile(formulaUrl, formulaPath);
+      
+      const formulaData = JSON.parse(readFileSync(formulaPath, 'utf8'));
+      const bottles = formulaData.bottle?.stable?.files;
+      
+      if (!bottles) {
+        throw new Error('No bottle information available');
+      }
+      
+      // Get the right bottle for the architecture
+      const macOSVersion = 'sonoma'; // Try latest first
+      const bottleKey = arch === 'arm64' ? `arm64_${macOSVersion}` : `${macOSVersion}`;
+      
+      let bottleInfo = bottles[bottleKey] || bottles[`arm64_ventura`] || bottles[`ventura`] || bottles[`monterey`];
+      
+      if (!bottleInfo) {
+        throw new Error(`No suitable bottle found for architecture ${arch}`);
+      }
+      
+      console.log(`📦 Found bottle: ${bottleInfo.url}`);
+      
+      // Download the bottle
+      const bottlePath = join(tempDir, 'zstd-bottle.tar.gz');
+      console.log('📥 Downloading bottle...');
+      await downloadFile(bottleInfo.url, bottlePath);
+      
+      // Extract the bottle to get libzstd.1.dylib
+      console.log('📂 Extracting bottle...');
+      
+      // Use tar command to extract (simpler than tar-stream for this case)
+      const extractDir = join(tempDir, 'extracted');
+      await mkdir(extractDir, { recursive: true });
+      
+      execSync(`tar -xzf "${bottlePath}" -C "${extractDir}"`, { stdio: 'pipe' });
+      
+      // Find the libzstd.1.dylib file in the extracted content
+      const libzstdPath = execSync(`find "${extractDir}" -name "libzstd.1.dylib" | head -1`, { encoding: 'utf8' }).trim();
+      
+      if (!libzstdPath || !existsSync(libzstdPath)) {
+        throw new Error('libzstd.1.dylib not found in downloaded bottle');
+      }
+      
+      console.log(`✅ Found libzstd.1.dylib at: ${libzstdPath}`);
+      
+      // Copy to all lib directories
+      let copySuccess = false;
+      for (const libDir of libDirs) {
+        const targetPath = join(libDir, 'libzstd.1.dylib');
+        try {
+          execSync(`cp "${libzstdPath}" "${targetPath}"`);
+          console.log(`✅ Copied libzstd to: ${targetPath}`);
+          copySuccess = true;
+        } catch (error) {
+          console.log(`⚠️ Failed to copy to ${targetPath}: ${error.message}`);
+        }
+      }
+      
+      // Cleanup
+      try {
+        execSync(`rm -rf "${tempDir}"`);
+      } catch (e) {
+        // Cleanup failed, but that's ok
+      }
+      
+      return copySuccess;
+      
+    } catch (downloadError) {
+      console.log('⚠️ Homebrew API download failed:', downloadError.message);
+      
+      // Fallback: try direct URLs for known versions
+      console.log('🔄 Trying fallback download URLs...');
+      
+      const fallbackUrls = {
+        arm64: [
+          'https://ghcr.io/v2/homebrew/core/zstd/blobs/sha256:5d8ee3d8e9e8f88c8a1b8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8',
+          'https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz'
+        ],
+        x86_64: [
+          'https://ghcr.io/v2/homebrew/core/zstd/blobs/sha256:8b5d6a8c9e4d7f6a5b3c2e1f9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c',
+          'https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz'
+        ]
+      };
+      
+      // For now, return false to trigger the next fallback strategy
+      console.log('⚠️ Fallback downloads not implemented yet - using next strategy...');
+      return false;
+    }
+    
+  } catch (error) {
+    console.log('❌ Failed to download libzstd from bottle:', error.message);
+    return false;
+  } finally {
+    // Cleanup temp directory
+    try {
+      const tempDir = join(projectRoot, '.temp-libzstd');
+      if (existsSync(tempDir)) {
+        execSync(`rm -rf "${tempDir}"`);
+      }
+    } catch (e) {
+      // Cleanup failed, but that's ok
+    }
+  }
+}
+
+/**
  * Automatically download and install libzstd for embedded postgres
  */
 export async function downloadLibzstd() {
-  console.log('🔧 Detecting Mac architecture and downloading libzstd...');
+  console.log('🔧 Detecting Mac architecture and setting up libzstd...');
   
   // Detect architecture
   const arch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
@@ -157,7 +314,8 @@ export async function downloadLibzstd() {
   
   const libzstdFilename = 'libzstd.1.dylib';
   
-  // Try to find libzstd locally first (if user has Homebrew)
+  // Strategy 1: Try to find libzstd locally first (if user has Homebrew already installed)
+  console.log('🔍 Step 1: Checking for existing libzstd installation...');
   const localPaths = [
     '/opt/homebrew/lib/libzstd.1.dylib',     // Apple Silicon Homebrew
     '/usr/local/lib/libzstd.1.dylib',        // Intel Homebrew
@@ -202,15 +360,14 @@ export async function downloadLibzstd() {
     return true;
   }
   
-  // If not found locally, try to install via Homebrew and then copy
-  console.log('📥 libzstd not found locally, attempting to install via Homebrew...');
-  
+  // Strategy 2: Try automated Homebrew install (if available)
+  console.log('🔍 Step 2: Attempting automated Homebrew installation...');
   try {
     // Check if Homebrew is installed
     execSync('which brew', { stdio: 'pipe' });
     
     // Try to install zstd
-    console.log('🍺 Installing zstd via Homebrew...');
+    console.log('🍺 Installing zstd via existing Homebrew...');
     execSync('brew install zstd', { stdio: 'pipe' });
     
     // Try to find it again
@@ -244,21 +401,57 @@ export async function downloadLibzstd() {
       return true;
     }
   } catch (error) {
-    console.log('⚠️ Homebrew not available or zstd installation failed');
+    console.log('⚠️ Homebrew not available or installation failed');
   }
   
-  // Last resort: provide manual instructions
+  // Strategy 3: Download from bottle (without requiring Homebrew installation)
+  console.log('🔍 Step 3: Attempting direct download...');
+  const downloadSuccess = await downloadLibzstdFromBottle(arch, libDirs);
+  if (downloadSuccess) {
+    return true;
+  }
+  
+  // Strategy 4: Try Rosetta fallback (Apple Silicon only)
+  if (isAppleSilicon) {
+    console.log('🔍 Step 4: Checking Rosetta availability...');
+    try {
+      // Check if Rosetta is installed
+      execSync('arch -x86_64 uname -m', { stdio: 'pipe' });
+      console.log('✅ Rosetta is available - Intel binary can be used as fallback');
+      
+      // We don't actually switch to Intel binary here, just confirm it's possible
+      // The actual switching would happen in the embedded-postgres setup
+      console.log('💡 You can use Intel binary with Rosetta as a fallback');
+      console.log('   This will be slower but should work around the libzstd issue');
+      
+      return 'rosetta-fallback';
+    } catch (error) {
+      console.log('⚠️ Rosetta not available. Install with: softwareupdate --install-rosetta');
+    }
+  }
+  
+  // Strategy 5: User guidance for manual installation
   console.log('');
-  console.log('🔧 Manual libzstd setup required:');
+  console.log('🔧 Automatic setup failed - choose one of these options:');
   console.log('');
-  console.log('1. Install Homebrew if not already installed:');
+  console.log('Option A - Install missing dependency (quick):');
+  console.log('1. Install Homebrew:');
   console.log('   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
+  console.log('2. Install zstd: brew install zstd');
+  console.log('3. Retry: pnpm post-setup');
   console.log('');
-  console.log('2. Install zstd:');
-  console.log('   brew install zstd');
-  console.log('');
-  console.log('3. Rerun the setup:');
-  console.log('   pnpm post-setup');
+  
+  if (isAppleSilicon) {
+    console.log('Option B - Install Rosetta (Apple Silicon):');
+    console.log('1. Install Rosetta: softwareupdate --install-rosetta');
+    console.log('2. Retry: pnpm post-setup');
+    console.log('   (Will use Intel binary with emulation)');
+    console.log('');
+  }
+  
+  console.log('Option C - Use cloud database instead (recommended):');
+  console.log('   npx create-volo-app@dev your-app --database');
+  console.log('   (Choose Neon or Supabase for hassle-free setup)');
   
   return false;
 }

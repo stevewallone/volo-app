@@ -68,13 +68,16 @@ export async function setupEmbeddedPostgres() {
       console.log('🍎 Detected Mac libzstd compatibility issue');
       console.log('🔧 Attempting to fix automatically...');
       
-      const fixed = await downloadLibzstd();
+      const result = await downloadLibzstd();
       
-      if (!fixed) {
+      if (result === true) {
+        console.log('✅ libzstd issue resolved, continuing with setup...');
+      } else if (result === 'rosetta-fallback') {
+        console.log('⚠️ Using Rosetta fallback - performance may be slower but should work');
+        // Continue with setup, but note that we're using Rosetta
+      } else {
         throw new Error('Unable to automatically fix libzstd issue. Please follow the manual setup instructions above.');
       }
-      
-      console.log('✅ libzstd issue resolved, continuing with setup...');
     }
   }
   

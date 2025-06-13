@@ -1,6 +1,6 @@
 {
   "name": "volo-app-template",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Full-stack React + Hono template with Firebase Auth, Neon DB, and Cloudflare deployment",
   "type": "module",
   "scripts": {
@@ -46,5 +46,15 @@
       "FIREBASE_MEASUREMENT_ID": "string",
       "DATABASE_URL": "string"
     }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "embedded-postgres",
+      "@embedded-postgres/darwin-arm64",
+      "@embedded-postgres/darwin-x64",
+      "@embedded-postgres/linux-arm64", 
+      "@embedded-postgres/linux-x64",
+      "@embedded-postgres/win32-x64"
+    ]
   }
 }

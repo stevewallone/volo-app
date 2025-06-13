@@ -23,6 +23,159 @@ const projectRoot = dirname(__dirname);
 console.log('🔧 Running post-setup configuration...');
 
 /**
+ * Execute pnpm command with proper PATH resolution and npm fallback
+ * Handles PATH issues across different platforms and shells
+ */
+function execPnpm(command, options = {}) {
+  const isWindows = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+  
+  // Build list of commands to try in order
+  const possibleCommands = [];
+  
+  if (isWindows) {
+    // On Windows, try different approaches to find pnpm
+    possibleCommands.push(
+      command, // Try direct command first
+      command.replace('pnpm', 'pnpm.cmd'), // Try .cmd extension
+      command.replace('pnpm', 'npx pnpm'), // Try via npx
+    );
+  } else {
+    // On Unix systems (Mac/Linux)
+    possibleCommands.push(
+      command, // Try direct command first
+      command.replace('pnpm', 'npx pnpm'), // Try via npx
+    );
+    
+    // Mac-specific: try common Homebrew and other package manager paths
+    if (isMac) {
+      // Try with explicit PATH that includes common package manager locations
+      const macPaths = [
+        '/opt/homebrew/bin', // Apple Silicon Homebrew
+        '/usr/local/bin',    // Intel Homebrew
+        '/opt/local/bin',    // MacPorts
+        process.env.HOME + '/.local/bin', // User local
+        process.env.HOME + '/.npm-global/bin', // npm global
+        process.env.HOME + '/.pnpm', // pnpm home
+      ].filter(Boolean).join(':');
+      
+      const enhancedPath = `${macPaths}:${process.env.PATH || ''}`;
+      
+      possibleCommands.push({
+        cmd: command,
+        env: { ...process.env, PATH: enhancedPath }
+      });
+    }
+  }
+  
+  // Add npm fallback for install commands only
+  if (command.includes('pnpm install') && !command.includes('dotenv-cli')) {
+    possibleCommands.push(command.replace('pnpm install', 'npm install'));
+  }
+  
+  let lastError;
+  for (const cmdOrObj of possibleCommands) {
+    try {
+      const isObject = typeof cmdOrObj === 'object';
+      const cmd = isObject ? cmdOrObj.cmd : cmdOrObj;
+      const cmdEnv = isObject ? cmdOrObj.env : process.env;
+      
+      return execSync(cmd, {
+        ...options,
+        env: {
+          ...cmdEnv,
+          ...options.env,
+        },
+      });
+    } catch (error) {
+      lastError = error;
+      if (cmdOrObj === possibleCommands[possibleCommands.length - 1]) {
+        // If this is the last attempt, throw the error
+        throw error;
+      }
+      // Otherwise, continue to next attempt
+      continue;
+    }
+  }
+  
+  throw lastError;
+}
+
+/**
+ * Debug function to show detailed PATH and pnpm information
+ */
+function debugPnpmEnvironment() {
+  console.log('🔍 Debugging pnpm environment...');
+  console.log(`Platform: ${process.platform}`);
+  console.log(`Current PATH: ${process.env.PATH}`);
+  console.log(`Shell: ${process.env.SHELL || 'unknown'}`);
+  console.log(`Home: ${process.env.HOME || 'unknown'}`);
+  
+  // Try to find pnpm with which/where
+  try {
+    const whichCmd = process.platform === 'win32' ? 'where pnpm' : 'which pnpm';
+    const pnpmLocation = execSync(whichCmd, { stdio: 'pipe', encoding: 'utf8' });
+    console.log(`pnpm location: ${pnpmLocation.trim()}`);
+  } catch (error) {
+    console.log('pnpm not found in PATH via which/where');
+  }
+  
+  // Check common installation locations
+  const commonLocations = [
+    '/opt/homebrew/bin/pnpm',
+    '/usr/local/bin/pnpm',
+    process.env.HOME + '/.local/bin/pnpm',
+    process.env.HOME + '/.npm-global/bin/pnpm',
+    process.env.HOME + '/.pnpm/pnpm',
+  ].filter(Boolean);
+  
+  for (const location of commonLocations) {
+    try {
+      if (existsSync(location)) {
+        console.log(`✅ Found pnpm at: ${location}`);
+        const version = execSync(`"${location}" --version`, { stdio: 'pipe', encoding: 'utf8' });
+        console.log(`   Version: ${version.trim()}`);
+      }
+    } catch (error) {
+      // Silent fail for testing
+    }
+  }
+}
+
+/**
+ * Test if pnpm is available
+ */
+async function testPnpmAvailability() {
+  try {
+    const version = execPnpm('pnpm --version', { stdio: 'pipe' });
+    console.log(`✅ pnpm ${version.toString().trim()} detected`);
+    return true;
+  } catch (error) {
+    console.log('⚠️ pnpm not found, running diagnostics...');
+    debugPnpmEnvironment();
+    
+    console.log('');
+    console.log('💡 To fix pnpm issues:');
+    console.log('   • Install: npm install -g pnpm');
+    console.log('   • Or install via Homebrew: brew install pnpm');
+    console.log('   • Or visit: https://pnpm.io/installation');
+    console.log('   • Make sure to restart your terminal after installation');
+    console.log('');
+    
+    // Test if npm is available as fallback
+    try {
+      const npmVersion = execSync('npm --version', { stdio: 'pipe' });
+      console.log(`✅ npm ${npmVersion.toString().trim()} will be used as fallback`);
+      return true;
+    } catch (npmError) {
+      console.error('❌ Neither pnpm nor npm is available');
+      console.error('💡 Please install Node.js and npm first');
+      return false;
+    }
+  }
+}
+
+/**
  * Detect configuration from generated files
  */
 function detectConfiguration() {
@@ -95,7 +248,7 @@ async function setupLocalDatabase() {
       
       // Install the new dependency
       console.log('📦 Running pnpm install for embedded-postgres...');
-      execSync('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
+      execPnpm('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
       console.log('✅ Embedded-postgres installed');
     }
     
@@ -149,38 +302,28 @@ async function testProductionDatabase(config) {
 /**
  * Setup production database schema
  */
-async function setupProductionDatabaseSchema(config, maxRetries = 3) {
+async function setupProductionDatabaseSchema(config) {
   console.log('🔒 Setting up production database schema...');
   
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      // Setup private schema
-      execSync('npx dotenv-cli -e .env -- node scripts/setup-private-schema.mjs', {
-        cwd: join(projectRoot, 'server'),
-        stdio: 'inherit'
-      });
-      
-      // Push schema with Drizzle
-      execSync('npx dotenv-cli -e .env -- pnpm db:push', {
-        cwd: join(projectRoot, 'server'),
-        stdio: 'inherit'
-      });
-      
-      console.log('✅ Production database schema created successfully!');
-      return;
-    } catch (error) {
-      const isLastAttempt = attempt === maxRetries;
-      
-      if (isLastAttempt) {
-        console.error('❌ Failed to setup database schema after multiple attempts');
-        console.log('💡 You can complete this manually:');
-        console.log('   cd server && npx dotenv-cli -e .env -- pnpm db:push');
-        throw error;
-      }
-      
-      console.log(`⏳ Schema setup failed (attempt ${attempt}/${maxRetries}), retrying...`);
-      await new Promise(resolve => setTimeout(resolve, 3000));
-    }
+  try {
+    // Setup private schema
+    execSync('npx dotenv-cli -e .env -- node scripts/setup-private-schema.mjs', {
+      cwd: join(projectRoot, 'server'),
+      stdio: 'inherit'
+    });
+    
+    // Push schema with Drizzle
+    execPnpm('npx dotenv-cli -e .env -- pnpm db:push', {
+      cwd: join(projectRoot, 'server'),
+      stdio: 'inherit'
+    });
+    
+    console.log('✅ Production database schema created successfully!');
+  } catch (error) {
+    console.error('❌ Failed to setup database schema');
+    console.log('💡 You can complete this manually:');
+    console.log('   cd server && npx dotenv-cli -e .env -- pnpm db:push');
+    throw error;
   }
 }
 
@@ -219,9 +362,15 @@ async function setupFirebaseConfig(config) {
  */
 async function runPostSetup() {
   try {
+    // Test pnpm availability first
+    const pnpmAvailable = await testPnpmAvailability();
+    if (!pnpmAvailable) {
+      process.exit(1);
+    }
+
     // Install dependencies
     console.log('📦 Installing dependencies...');
-    execSync('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
+    execPnpm('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
     console.log('✅ Dependencies installed');
 
     // Detect configuration

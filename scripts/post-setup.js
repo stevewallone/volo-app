@@ -248,7 +248,7 @@ async function setupLocalDatabase() {
       
       // Install the new dependency
       console.log('📦 Running pnpm install for embedded-postgres...');
-      execPnpm('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
+      execPnpm('pnpm install --enable-scripts', { cwd: projectRoot, stdio: 'inherit' });
       console.log('✅ Embedded-postgres installed');
     }
     
@@ -370,7 +370,7 @@ async function runPostSetup() {
 
     // Install dependencies
     console.log('📦 Installing dependencies...');
-    execPnpm('pnpm install', { cwd: projectRoot, stdio: 'inherit' });
+    execPnpm('pnpm install --enable-scripts', { cwd: projectRoot, stdio: 'inherit' });
     console.log('✅ Dependencies installed');
 
     // Detect configuration

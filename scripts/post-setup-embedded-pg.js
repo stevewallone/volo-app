@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { mkdir } from 'fs/promises';
+import { execSync } from 'child_process';
 import EmbeddedPostgres from 'embedded-postgres';
 import postgres from 'postgres';
 import net from 'net';
@@ -60,7 +61,25 @@ async function findNextAvailablePort(startPort) {
 export async function setupEmbeddedPostgres() {
   console.log('🗄️ Setting up local embedded PostgreSQL...');
   
-  // Check for Mac libzstd issues first
+  // Note: pnpm build script approval should have been handled during installation
+  // But we'll do a quick check just in case
+  console.log('🔧 Verifying embedded postgres build scripts...');
+  try {
+    // Quick rebuild attempt (should be fast if already built)
+    execSync('pnpm rebuild @embedded-postgres/darwin-arm64 @embedded-postgres/darwin-x64', { 
+      stdio: 'pipe',
+      cwd: projectRoot,
+      timeout: 30000 // 30 second timeout
+    });
+    console.log('✅ Embedded postgres build scripts verified');
+  } catch (rebuildError) {
+    console.log('⚠️ Build script verification failed (this might be okay if already built)');
+    if (process.env.DEBUG) {
+      console.log('Debug:', rebuildError.message);
+    }
+  }
+  
+  // Check for Mac libzstd issues (might not be needed now that build scripts run!)
   if (process.platform === 'darwin') {
     const hasLibzstdIssue = await detectLibzstdIssue();
     
@@ -78,6 +97,8 @@ export async function setupEmbeddedPostgres() {
       } else {
         throw new Error('Unable to automatically fix libzstd issue. Please follow the manual setup instructions above.');
       }
+    } else {
+      console.log('✅ No Mac libzstd issues detected (build scripts likely fixed it!)');
     }
   }
   

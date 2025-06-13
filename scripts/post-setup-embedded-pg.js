@@ -77,7 +77,7 @@ export async function setupEmbeddedPostgres() {
   let client = null;
   
   try {
-    const postgresConfig = {
+    embeddedPg = new EmbeddedPostgres({
       databaseDir: join(dataDir, 'postgres'),
       user: 'postgres',
       password: 'password',
@@ -86,46 +86,9 @@ export async function setupEmbeddedPostgres() {
       initdbFlags: process.platform === 'darwin' 
         ? ['--encoding=UTF8', '--lc-collate=en_US.UTF-8', '--lc-ctype=en_US.UTF-8']
         : ['--encoding=UTF8', '--lc-collate=C', '--lc-ctype=C']
-    };
-    
-    // Add Mac-specific configuration to handle common issues
-    if (process.platform === 'darwin') {
-      // For Apple Silicon Macs, we need special handling
-      if (process.arch === 'arm64') {
-        console.log('🍎 Detected Apple Silicon Mac, applying compatibility settings...');
-        
-        // Try to use Intel emulation for better compatibility
-        postgresConfig.architecture = 'x64';
-        
-        // Add additional flags for Apple Silicon compatibility
-        postgresConfig.initdbFlags = [
-          '--encoding=UTF8',
-          '--lc-collate=en_US.UTF-8', 
-          '--lc-ctype=en_US.UTF-8',
-          '--auth-local=trust',
-          '--auth-host=md5'
-        ];
-        
-        // Set explicit locale environment
-        process.env.LC_ALL = 'en_US.UTF-8';
-        process.env.LANG = 'en_US.UTF-8';
-      }
-    }
-    
-    console.log(`📦 Creating PostgreSQL instance with config:`, {
-      platform: process.platform,
-      arch: process.arch,
-      port: postgresPort,
-      dataDir: postgresConfig.databaseDir
     });
-    
-    embeddedPg = new EmbeddedPostgres(postgresConfig);
 
-    // Try to initialize PostgreSQL
-    console.log('📦 Initializing PostgreSQL database...');
     await embeddedPg.initialise();
-    
-    console.log('🚀 Starting PostgreSQL server...');
     await embeddedPg.start();
     console.log(`✅ Embedded PostgreSQL started on port ${postgresPort}`);
 

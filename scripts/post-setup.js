@@ -87,7 +87,7 @@ async function setupLocalDatabase() {
   // Add embedded-postgres to devDependencies if not already present
   if (!packageJson.devDependencies?.['embedded-postgres']) {
     packageJson.devDependencies = packageJson.devDependencies || {};
-    packageJson.devDependencies['embedded-postgres'] = '17.5.0-beta.15';
+    packageJson.devDependencies['embedded-postgres'] = '17.0.1';
     
     writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
     console.log('✅ Added embedded-postgres dependency');

@@ -4,11 +4,9 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { mkdir } from 'fs/promises';
-import { execSync } from 'child_process';
 import EmbeddedPostgres from 'embedded-postgres';
 import postgres from 'postgres';
 import net from 'net';
-import { detectLibzstdIssue, downloadLibzstd, provideMacTroubleshootingGuidance } from './mac-libzstd-fix.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,47 +58,6 @@ async function findNextAvailablePort(startPort) {
  */
 export async function setupEmbeddedPostgres() {
   console.log('🗄️ Setting up local embedded PostgreSQL...');
-  
-  // Note: pnpm build script approval should have been handled during installation
-  // But we'll do a quick check just in case
-  console.log('🔧 Verifying embedded postgres build scripts...');
-  try {
-    // Quick rebuild attempt (should be fast if already built)
-    execSync('pnpm rebuild @embedded-postgres/darwin-arm64 @embedded-postgres/darwin-x64', { 
-      stdio: 'pipe',
-      cwd: projectRoot,
-      timeout: 30000 // 30 second timeout
-    });
-    console.log('✅ Embedded postgres build scripts verified');
-  } catch (rebuildError) {
-    console.log('⚠️ Build script verification failed (this might be okay if already built)');
-    if (process.env.DEBUG) {
-      console.log('Debug:', rebuildError.message);
-    }
-  }
-  
-  // Check for Mac libzstd issues (might not be needed now that build scripts run!)
-  if (process.platform === 'darwin') {
-    const hasLibzstdIssue = await detectLibzstdIssue();
-    
-    if (hasLibzstdIssue) {
-      console.log('🍎 Detected Mac libzstd compatibility issue');
-      console.log('🔧 Attempting to fix automatically...');
-      
-      const result = await downloadLibzstd();
-      
-      if (result === true) {
-        console.log('✅ libzstd issue resolved, continuing with setup...');
-      } else if (result === 'rosetta-fallback') {
-        console.log('⚠️ Using Rosetta fallback - performance may be slower but should work');
-        // Continue with setup, but note that we're using Rosetta
-      } else {
-        throw new Error('Unable to automatically fix libzstd issue. Please follow the manual setup instructions above.');
-      }
-    } else {
-      console.log('✅ No Mac libzstd issues detected (build scripts likely fixed it!)');
-    }
-  }
   
   const dataDir = join(projectRoot, 'data');
   if (!existsSync(dataDir)) {
@@ -194,11 +151,6 @@ export async function setupEmbeddedPostgres() {
     if (error.message?.includes('postmaster.pid already exists')) {
       console.log('⚠️ PostgreSQL instance already running, continuing...');
       return `postgresql://postgres:password@localhost:${postgresPort}/postgres`;
-    }
-    
-    // Use the modular Mac troubleshooting guidance
-    if (process.platform === 'darwin') {
-      provideMacTroubleshootingGuidance(error, dataDir);
     }
     
     throw new Error(`Embedded PostgreSQL setup failed: ${error.message || 'Unknown error'}`);

@@ -90,9 +90,25 @@ export async function setupEmbeddedPostgres() {
     
     // Add Mac-specific configuration to handle common issues
     if (process.platform === 'darwin') {
-      // For Apple Silicon Macs, specify architecture compatibility
+      // For Apple Silicon Macs, we need special handling
       if (process.arch === 'arm64') {
-        postgresConfig.architecture = 'x64'; // Force Intel emulation if needed
+        console.log('🍎 Detected Apple Silicon Mac, applying compatibility settings...');
+        
+        // Try to use Intel emulation for better compatibility
+        postgresConfig.architecture = 'x64';
+        
+        // Add additional flags for Apple Silicon compatibility
+        postgresConfig.initdbFlags = [
+          '--encoding=UTF8',
+          '--lc-collate=en_US.UTF-8', 
+          '--lc-ctype=en_US.UTF-8',
+          '--auth-local=trust',
+          '--auth-host=md5'
+        ];
+        
+        // Set explicit locale environment
+        process.env.LC_ALL = 'en_US.UTF-8';
+        process.env.LANG = 'en_US.UTF-8';
       }
     }
     
@@ -105,7 +121,11 @@ export async function setupEmbeddedPostgres() {
     
     embeddedPg = new EmbeddedPostgres(postgresConfig);
 
+    // Try to initialize PostgreSQL
+    console.log('📦 Initializing PostgreSQL database...');
     await embeddedPg.initialise();
+    
+    console.log('🚀 Starting PostgreSQL server...');
     await embeddedPg.start();
     console.log(`✅ Embedded PostgreSQL started on port ${postgresPort}`);
 
@@ -174,13 +194,33 @@ export async function setupEmbeddedPostgres() {
     if (process.platform === 'darwin') {
       console.log('');
       console.log('🍎 Mac Troubleshooting:');
-      console.log('  1. If you have Apple Silicon (M1/M2/M3), try installing Rosetta 2:');
-      console.log('     softwareupdate --install-rosetta');
-      console.log('  2. Ensure you have required system tools:');
-      console.log('     xcode-select --install');
-      console.log('  3. Check available disk space and permissions in:');
-      console.log(`     ${join(dataDir, 'postgres')}`);
-      console.log('  4. Try restarting the terminal and running again');
+      
+      if (error.message?.includes('init script exited with code null') || error.message?.includes('initdb')) {
+        console.log('  ❌ PostgreSQL initialization failed on Apple Silicon Mac');
+        console.log('  🔧 Try these solutions in order:');
+        console.log('');
+        console.log('  1. Install Rosetta 2 (required for Intel emulation):');
+        console.log('     softwareupdate --install-rosetta');
+        console.log('');
+        console.log('  2. Install Xcode Command Line Tools:');
+        console.log('     xcode-select --install');
+        console.log('');
+        console.log('  3. Clean up and retry:');
+        console.log(`     rm -rf ${join(dataDir, 'postgres')}`);
+        console.log('     Then run the setup again');
+        console.log('');
+        console.log('  4. Alternative: Use Docker PostgreSQL instead:');
+        console.log('     docker run -d --name volo-postgres -p 5433:5432 \\');
+        console.log('       -e POSTGRES_PASSWORD=password postgres:15');
+      } else {
+        console.log('  1. If you have Apple Silicon (M1/M2/M3), try installing Rosetta 2:');
+        console.log('     softwareupdate --install-rosetta');
+        console.log('  2. Ensure you have required system tools:');
+        console.log('     xcode-select --install');
+        console.log('  3. Check available disk space and permissions in:');
+        console.log(`     ${join(dataDir, 'postgres')}`);
+        console.log('  4. Try restarting the terminal and running again');
+      }
     }
     
     throw new Error(`Embedded PostgreSQL setup failed: ${error.message || 'Unknown error'}`);

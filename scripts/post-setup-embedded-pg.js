@@ -7,6 +7,7 @@ import { mkdir } from 'fs/promises';
 import EmbeddedPostgres from 'embedded-postgres';
 import postgres from 'postgres';
 import net from 'net';
+import { detectLibzstdIssue, downloadLibzstd, provideMacTroubleshootingGuidance } from './mac-libzstd-fix.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,6 +59,24 @@ async function findNextAvailablePort(startPort) {
  */
 export async function setupEmbeddedPostgres() {
   console.log('🗄️ Setting up local embedded PostgreSQL...');
+  
+  // Check for Mac libzstd issues first
+  if (process.platform === 'darwin') {
+    const hasLibzstdIssue = await detectLibzstdIssue();
+    
+    if (hasLibzstdIssue) {
+      console.log('🍎 Detected Mac libzstd compatibility issue');
+      console.log('🔧 Attempting to fix automatically...');
+      
+      const fixed = await downloadLibzstd();
+      
+      if (!fixed) {
+        throw new Error('Unable to automatically fix libzstd issue. Please follow the manual setup instructions above.');
+      }
+      
+      console.log('✅ libzstd issue resolved, continuing with setup...');
+    }
+  }
   
   const dataDir = join(projectRoot, 'data');
   if (!existsSync(dataDir)) {
@@ -153,37 +172,9 @@ export async function setupEmbeddedPostgres() {
       return `postgresql://postgres:password@localhost:${postgresPort}/postgres`;
     }
     
-    // Provide Mac-specific troubleshooting
+    // Use the modular Mac troubleshooting guidance
     if (process.platform === 'darwin') {
-      console.log('');
-      console.log('🍎 Mac Troubleshooting:');
-      
-      if (error.message?.includes('init script exited with code null') || error.message?.includes('initdb')) {
-        console.log('  ❌ PostgreSQL initialization failed on Apple Silicon Mac');
-        console.log('  🔧 Try these solutions in order:');
-        console.log('');
-        console.log('  1. Install Rosetta 2 (required for Intel emulation):');
-        console.log('     softwareupdate --install-rosetta');
-        console.log('');
-        console.log('  2. Install Xcode Command Line Tools:');
-        console.log('     xcode-select --install');
-        console.log('');
-        console.log('  3. Clean up and retry:');
-        console.log(`     rm -rf ${join(dataDir, 'postgres')}`);
-        console.log('     Then run the setup again');
-        console.log('');
-        console.log('  4. Alternative: Use Docker PostgreSQL instead:');
-        console.log('     docker run -d --name volo-postgres -p 5433:5432 \\');
-        console.log('       -e POSTGRES_PASSWORD=password postgres:15');
-      } else {
-        console.log('  1. If you have Apple Silicon (M1/M2/M3), try installing Rosetta 2:');
-        console.log('     softwareupdate --install-rosetta');
-        console.log('  2. Ensure you have required system tools:');
-        console.log('     xcode-select --install');
-        console.log('  3. Check available disk space and permissions in:');
-        console.log(`     ${join(dataDir, 'postgres')}`);
-        console.log('  4. Try restarting the terminal and running again');
-      }
+      provideMacTroubleshootingGuidance(error, dataDir);
     }
     
     throw new Error(`Embedded PostgreSQL setup failed: ${error.message || 'Unknown error'}`);
